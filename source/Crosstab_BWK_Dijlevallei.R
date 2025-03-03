@@ -11,17 +11,17 @@ library(scales)      # For formatting percentages
 # ==========================
 
 # Define the path to the shapefile 
-shapefile_path <- "G:/Gedeelde drives/Team_BioDiv/5_Projecten/2024_Biodiversa_habitatpilot/WP2_3/Inundation/exploration_sites_dec_2024/Demervallei_BWK2023.shp"
+shapefile_path <- "G:/Gedeelde drives/Team_BioDiv/5_Projecten/2024_Biodiversa_habitatpilot/WP2_3/Inundation/exploration_sites_dec_2024/Dijlevallei_BWK2023.shp"
 
 # Read the shapefile into R
-demervallei <- st_read(shapefile_path)
+dijlevallei <- st_read(shapefile_path)
 
 # ==========================
 # 2️⃣ Extract First Letter of EENH1
 # ==========================
 
 # Create a new column with the first letter of EENH1 (in lowercase)
-demervallei <- demervallei %>%
+dijlevallei <- dijlevallei %>%
   mutate(EENH1_Group = str_to_lower(str_sub(EENH1, 1, 1)))  # Ensure lowercase
 
 # ==========================
@@ -29,14 +29,14 @@ demervallei <- demervallei %>%
 # ==========================
 
 # Perform cross-tabulation, summing the polygon area (OPPERVL)
-crosstab <- demervallei %>%
+crosstab <- dijlevallei %>%
   st_drop_geometry() %>%  # Remove geometry for tabular operations
   group_by(EENH1, HAB1) %>%
   summarise(Total_Area = sum(OPPERVL, na.rm = TRUE), .groups = "drop") %>%
   pivot_wider(names_from = HAB1, values_from = Total_Area, values_fill = 0)  # Convert to wide format
 
 # Normalize the values to **relative proportions per HAB1**
-crosstab_long <- demervallei %>%
+crosstab_long <- dijlevallei %>%
   st_drop_geometry() %>%
   group_by(EENH1, HAB1) %>%
   summarise(Total_Area = sum(OPPERVL, na.rm = TRUE), .groups = "drop") %>%
@@ -115,7 +115,7 @@ for (letter in selected_letters) {
   
   # Save the heatmap with dynamic figure size
   if (nrow(plot_data) > 0) {
-    ggsave(filename = paste0(output_dir, "/Demervallei_heatmap_", letter, ".png"),
+    ggsave(filename = paste0(output_dir, "/Dijlevallei_heatmap_", letter, ".png"),
            plot = p, width = plot_width, height = plot_height, dpi = 300)
   }
 }
@@ -128,10 +128,10 @@ for (letter in selected_letters) {
 
 # Function to save a filtered shapefile
 save_filtered_shapefile <- function(letter) {
-  filtered_data <- filter(demervallei, EENH1_Group == letter)
+  filtered_data <- filter(dijlevallei, EENH1_Group == letter)
   
   if (nrow(filtered_data) > 0) {
-    st_write(filtered_data, paste0(output_dir, "/Demervallei_BWK2023_", letter, ".shp"), delete_layer = TRUE)
+    st_write(filtered_data, paste0(output_dir, "/Dijlevallei_BWK2023_", letter, ".shp"), delete_layer = TRUE)
   }
 }
 
