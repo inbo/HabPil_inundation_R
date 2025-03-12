@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it using these metadata.
+title: "Inundation Hab Pilot"
+authors:
+- given-names: Stien
+  family-names: Heremans
+  affiliation: Instituut voor Natuur- en Bosonderzoek (INBO)
+  orcid: 0000-0002-5356-1093
+keywords:
+- remote sensing
+- inundation
+- satellites
+- wetlands
+- grasslands
+contact:
+- given-names: Stien
+  family-names: Heremans
+  affiliation: Instituut voor Natuur- en Bosonderzoek (INBO)
+  orcid: 0000-0002-5356-1093
+doi: ~
+license: CC-BY-4.0
+repository-code: https://github.com/inbo/HabPil_inundation_R/
+type: software
+abstract: "In this project, we try to map inundation from freely available satellite data"
