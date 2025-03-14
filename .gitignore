@@ -20,5 +20,5 @@
 .quarto
 docs
 libs
-output
+output/
 renv/library
