@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: If you use this software, please cite it using these metadata.
-title: "Inundation Hab Pilot"
+title: "Inundation Habitats Pilot"
 authors:
 - given-names: Stien
   family-names: Heremans
@@ -21,4 +21,5 @@ doi: ~
 license: CC-BY-4.0
 repository-code: https://github.com/inbo/HabPil_inundation_R/
 type: software
-abstract: "In this project, we try to map inundation from freely available satellite data"
+abstract: "In this project, we try to map inundation from freely available satellite
+  data, as part of the Biodiversa Habitats Pilot"
