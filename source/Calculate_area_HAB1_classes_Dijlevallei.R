@@ -1,5 +1,5 @@
 # ==============================================================================
-# 📊  Ordered Bar Plots for HAB1 area (ha) in Grassland & Wetland in Demervallei
+# 📊  Ordered Bar Plots for HAB1 area (ha) in Grassland & Wetland in Dijlevallei
 # ==============================================================================
 
 # Load required libraries
@@ -7,31 +7,58 @@ library(sf)          # For handling shapefiles
 library(dplyr)       # For data manipulation
 library(stringr)     # For working with strings
 library(ggplot2)     # For visualization
+library(googledrive) # For getting and saving files from/to Google Drive
 
 # ==========================================
-# 1️⃣ Load Data
+# 1️⃣ Load the Shapefile of the BWK Dijlevallei
 # ==========================================
 
-# Define the path to the shapefile
-shapefile_path <- "data/Demervallei_BWK2023.shp"
+# Save a local copy of the needed files
 
-# Read the shapefile into R
-demervallei <- st_read(shapefile_path)
+# Google Drive folder ID for your shapefile components
+drive_folder_id <- "1SthW-UKPD_gmU56Kr8yfqokSRq775_Po"
+
+# Local folder to store the shapefile
+local_dir <- "data/BWK 2023"
+
+# Create the folder if it doesn't exist
+if (!dir.exists(local_dir)) dir.create(local_dir, recursive = TRUE)
+
+# List all files in the Drive subfolder
+drive_files <- drive_ls(path = as_id(drive_folder_id))
+
+# Check which files already exist locally
+for (i in seq_len(nrow(drive_files))) {
+  local_path <- file.path(local_dir, drive_files$name[i])
+  
+  if (!file.exists(local_path)) {
+    message(paste("Downloading", drive_files$name[i]))
+    drive_download(as_id(drive_files$id[i]),
+                   path = local_path,
+                   overwrite = TRUE)
+  } else {
+    message(paste("Already exists:", drive_files$name[i]))
+  }
+}
+
+# Find and read the .shp file
+shp_file <- list.files(local_dir, pattern = "\\.shp$", full.names = TRUE)[1]
+Dijlevallei <- st_read(shp_file)
 
 # ==========================================
 # 2️⃣ Filter Data for Grassland & Wetland
 # ==========================================
 
 # Separate grassland and wetland using EENH1 first letter
-grassland_data <- demervallei %>%
+grassland_data <- Dijlevallei %>%
   st_drop_geometry() %>%
   filter(str_to_lower(str_sub(EENH1, 1, 1)) == "h")  # Grassland (EENH1 starts 
-  with 'h')
+    # with 'h')
 
-wetland_data <- demervallei %>%
+wetland_data <- Dijlevallei %>%
   st_drop_geometry() %>%
   filter(str_to_lower(str_sub(EENH1, 1, 1)) == "m")  # Wetland (EENH1 starts 
-  with 'm')
+    # with 'm')
 
 # ==========================================
 # 3️⃣ Calculate Total Area per HAB1
@@ -61,7 +88,13 @@ plot_bar_chart <- function(data, title) {
     geom_text(aes(label = paste0(round(Total_Area_ha, 1), " ha")), hjust = 
     -0.1, size = 4) +  # Add hectare labels
     scale_fill_viridis_c() +
-    theme_minimal() +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.grid = element_blank(),      # removes all grid lines
+      panel.background = element_rect(fill = "white", color = NA),  
+      plot.background = element_rect(fill = "white", color = NA),
+      axis.ticks = element_line(color = "black"),                   
+      axis.line = element_line(color = "black")) +                     
     labs(title = title, x = "HAB1 Class", y = "Total Area (ha)") +
     coord_flip()  # Flip axes for better readability
 }
@@ -79,3 +112,13 @@ wetland_plot <- plot_bar_chart(wetland_area, "Total Area per HAB1 (Wetland)")
 
 print(grassland_plot)
 print(wetland_plot)
+
+# ==========================================  
+# 6️⃣ Save the Plos Locally
+# ==========================================
+
+# Save the plots as PNG files
+ggsave("output/BWK_exploration/Dijlevallei_h_HAB1_Area.png", grassland_plot, 
+       width = 10, height = 6)
+ggsave("output/BWK_exploration/Dijlevallei_m_HAB1_Area.png", wetland_plot, 
+       width = 10, height = 6)
