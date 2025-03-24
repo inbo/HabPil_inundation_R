@@ -5,16 +5,43 @@ library(stringr)     # For string operations
 library(ggplot2)     # For plotting heatmaps
 library(tidyr)       # For reshaping data
 library(scales)      # For formatting percentages
+library(googledrive) # For getting and saving files from/to Google Drive
 
 # ==========================
-# 1️⃣ Load the Shapefile
+# 1️⃣ Load the Shapefile of the BWK Demervallei
 # ==========================
 
-# Define the path to the shapefile 
-shapefile_path <- "G:/Gedeelde drives/Team_BioDiv/5_Projecten/2024_Biodiversa_habitatpilot/WP2_3/Inundation/exploration_sites_dec_2024/Demervallei_BWK2023.shp"
+# Save a local copy of the needed files
 
-# Read the shapefile into R
-demervallei <- st_read(shapefile_path)
+# Google Drive folder ID for your shapefile components
+drive_folder_id <- "1SthW-UKPD_gmU56Kr8yfqokSRq775_Po"
+
+# Local folder to store the shapefile
+local_dir <- "data/BWK 2023"
+
+# Create the folder if it doesn't exist
+if (!dir.exists(local_dir)) dir.create(local_dir, recursive = TRUE)
+
+# List all files in the Drive subfolder
+drive_files <- drive_ls(path = as_id(drive_folder_id))
+
+# Check which files already exist locally
+for (i in seq_len(nrow(drive_files))) {
+  local_path <- file.path(local_dir, drive_files$name[i])
+  
+  if (!file.exists(local_path)) {
+    message(paste("Downloading", drive_files$name[i]))
+    drive_download(as_id(drive_files$id[i]),
+                   path = local_path,
+                   overwrite = TRUE)
+  } else {
+    message(paste("Already exists:", drive_files$name[i]))
+  }
+}
+
+# Find and read the .shp file
+shp_file <- list.files(local_dir, pattern = "\\.shp$", full.names = TRUE)[1]
+demervallei <- st_read(shp_file)
 
 # ==========================
 # 2️⃣ Extract First Letter of EENH1
@@ -33,7 +60,8 @@ crosstab <- demervallei %>%
   st_drop_geometry() %>%  # Remove geometry for tabular operations
   group_by(EENH1, HAB1) %>%
   summarise(Total_Area = sum(OPPERVL, na.rm = TRUE), .groups = "drop") %>%
-  pivot_wider(names_from = HAB1, values_from = Total_Area, values_fill = 0)  # Convert to wide format
+  pivot_wider(names_from = HAB1, values_from = Total_Area, values_fill = 0)  
+    # Convert to wide format
 
 # Normalize the values to **relative proportions per HAB1**
 crosstab_long <- demervallei %>%
@@ -51,12 +79,14 @@ crosstab_long <- demervallei %>%
 # Define the output folder
 output_dir <- "output/BWK_exploration"
 if (!dir.exists(output_dir)) {
-  dir.create(output_dir, recursive = TRUE)  # Create the folder if it doesn't exist
+  dir.create(output_dir, recursive = TRUE)  # Create the folder if it 
+  # doesn't exist
 }
 
 # Only keep "h" and "m"
 selected_letters <- c("h", "m")
-filtered_data <- filter(crosstab_long, str_sub(EENH1, 1, 1) %in% selected_letters)
+filtered_data <- filter(crosstab_long, str_sub(EENH1, 1, 1) %in% 
+                          selected_letters)
 
 # Loop over the selected first letters to create heatmaps
 for (letter in selected_letters) {
@@ -79,7 +109,8 @@ for (letter in selected_letters) {
   plot_data <- plot_data %>%
     mutate(Label = paste0(scales::percent(Relative_Area, accuracy = 0.1),  
                           "\n",  # New line for better readability
-                          format(round(Total_Area/10000, 1), big.mark = " "), " ha"))  # Format area
+                          format(round(Total_Area/10000, 1), big.mark = " "), 
+                          " ha"))  # Format area
   
   # Calculate number of rows and columns for the current letter
   num_rows <- length(unique(plot_data$EENH1))

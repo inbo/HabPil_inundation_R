@@ -10,11 +10,37 @@ library(scales)      # For formatting percentages
 # 1️⃣ Load the Shapefile
 # ==========================
 
-# Define the path to the shapefile 
-shapefile_path <- "G:/Gedeelde drives/Team_BioDiv/5_Projecten/2024_Biodiversa_habitatpilot/WP2_3/Inundation/exploration_sites_dec_2024/Dijlevallei_BWK2023.shp"
+# Save a local copy of the needed files
 
-# Read the shapefile into R
-dijlevallei <- st_read(shapefile_path)
+# Google Drive folder ID for your shapefile components
+drive_folder_id <- "1-ZOCF43PPGveRTcIiLqaMTQOu-iWOj6V"
+
+# Local folder to store the shapefile
+local_dir <- "data/BWK 2023"
+
+# Create the folder if it doesn't exist
+if (!dir.exists(local_dir)) dir.create(local_dir, recursive = TRUE)
+
+# List all files in the Drive subfolder
+drive_files <- drive_ls(path = as_id(drive_folder_id))
+
+# Check which files already exist locally
+for (i in seq_len(nrow(drive_files))) {
+  local_path <- file.path(local_dir, drive_files$name[i])
+  
+  if (!file.exists(local_path)) {
+    message(paste("Downloading", drive_files$name[i]))
+    drive_download(as_id(drive_files$id[i]),
+                   path = local_path,
+                   overwrite = TRUE)
+  } else {
+    message(paste("Already exists:", drive_files$name[i]))
+  }
+}
+
+# Find and read the .shp file
+shp_file <- list.files(local_dir, pattern = "\\.shp$", full.names = TRUE)[1]
+dijlevallei <- st_read(shp_file)
 
 # ==========================
 # 2️⃣ Extract First Letter of EENH1
