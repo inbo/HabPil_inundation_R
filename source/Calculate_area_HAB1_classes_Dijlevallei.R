@@ -15,47 +15,45 @@ library(googledrive) # For getting and saving files from/to Google Drive
 
 # Save a local copy of the needed files
 
-# Google Drive folder ID for your shapefile components
-drive_folder_id <- "1SthW-UKPD_gmU56Kr8yfqokSRq775_Po"
+# Google Drive folder ID for the correct shapefile (Dijlevallei)
+drive_folder_id <- "1-ZOCF43PPGveRTcIiLqaMTQOu-iWOj6V"
 
 # Local folder to store the shapefile
-local_dir <- "data/BWK 2023"
+site_name <- "Dijlevallei"
+local_dir <- file.path("data/BWK 2023", site_name)
 
-# Create the folder if it doesn't exist
-if (!dir.exists(local_dir)) dir.create(local_dir, recursive = TRUE)
+# Create the local folder if it doesn't exist
+dir.create(local_dir, recursive = TRUE, showWarnings = FALSE)
 
-# List all files in the Drive subfolder
+# List files in the Drive subfolder
 drive_files <- drive_ls(path = as_id(drive_folder_id))
 
-# Check which files already exist locally
+# Download only missing files
 for (i in seq_len(nrow(drive_files))) {
   local_path <- file.path(local_dir, drive_files$name[i])
-  
   if (!file.exists(local_path)) {
     message(paste("Downloading", drive_files$name[i]))
-    drive_download(as_id(drive_files$id[i]),
-                   path = local_path,
-                   overwrite = TRUE)
+    drive_download(as_id(drive_files$id[i]), path = local_path, overwrite = TRUE)
   } else {
     message(paste("Already exists:", drive_files$name[i]))
   }
 }
 
-# Find and read the .shp file
+# Read the .shp file
 shp_file <- list.files(local_dir, pattern = "\\.shp$", full.names = TRUE)[1]
-Dijlevallei <- st_read(shp_file)
+dijlevallei <- st_read(shp_file)
 
 # ==========================================
 # 2️⃣ Filter Data for Grassland & Wetland
 # ==========================================
 
 # Separate grassland and wetland using EENH1 first letter
-grassland_data <- Dijlevallei %>%
+grassland_data <- dijlevallei %>%
   st_drop_geometry() %>%
   filter(str_to_lower(str_sub(EENH1, 1, 1)) == "h")  # Grassland (EENH1 starts 
     # with 'h')
 
-wetland_data <- Dijlevallei %>%
+wetland_data <- dijlevallei %>%
   st_drop_geometry() %>%
   filter(str_to_lower(str_sub(EENH1, 1, 1)) == "m")  # Wetland (EENH1 starts 
     # with 'm')
@@ -114,11 +112,32 @@ print(grassland_plot)
 print(wetland_plot)
 
 # ==========================================  
-# 6️⃣ Save the Plos Locally
+# 6️⃣ Save the Plots Locally
 # ==========================================
 
 # Save the plots as PNG files
-ggsave("output/BWK_exploration/Dijlevallei_h_HAB1_Area.png", grassland_plot, 
+ggsave("output/BWK_exploration/Calculate_area_HAB1/Dijlevallei_HAB1_Area_h.png", grassland_plot, 
        width = 10, height = 6)
-ggsave("output/BWK_exploration/Dijlevallei_m_HAB1_Area.png", wetland_plot, 
+ggsave("output/BWK_exploration/Calculate_area_HAB1/Dijlevallei_HAB1_Area_m.png", wetland_plot, 
        width = 10, height = 6)
+
+# ==========================================
+# 7️⃣ Upload the Plots to Google Drive
+# ==========================================
+
+# Set your Google Drive folder ID
+target_folder_id <- "1CpH2prLEeY4Jo0stJKmSdQutZrBPFsZJ"  # Replace if needed
+
+# Upload plots to Google Drive
+drive_upload(
+  media = "output/BWK_exploration/Calculate_area_HAB1/Dijlevallei_HAB1_Area_h.png",
+  path = as_id(target_folder_id),
+  overwrite = TRUE
+)
+
+drive_upload(
+  media = "output/BWK_exploration/Calculate_area_HAB1/Dijlevallei_HAB1_Area_m.png",
+  path = as_id(target_folder_id),
+  overwrite = TRUE
+)
+

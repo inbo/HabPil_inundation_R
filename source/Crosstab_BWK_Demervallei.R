@@ -13,27 +13,25 @@ library(googledrive) # For getting and saving files from/to Google Drive
 
 # Save a local copy of the needed files
 
-# Google Drive folder ID for your shapefile components
+# Google Drive folder ID for the correct shapefile (Dijlevallei)
 drive_folder_id <- "1SthW-UKPD_gmU56Kr8yfqokSRq775_Po"
 
 # Local folder to store the shapefile
-local_dir <- "data/BWK 2023"
+site_name <- "Demervallei"
+local_dir <- file.path("data/BWK 2023", site_name)
 
-# Create the folder if it doesn't exist
-if (!dir.exists(local_dir)) dir.create(local_dir, recursive = TRUE)
+# Create the local folder if it doesn't exist
+dir.create(local_dir, recursive = TRUE, showWarnings = FALSE)
 
-# List all files in the Drive subfolder
+# List files in the Drive subfolder
 drive_files <- drive_ls(path = as_id(drive_folder_id))
 
-# Check which files already exist locally
+# Download only missing files
 for (i in seq_len(nrow(drive_files))) {
   local_path <- file.path(local_dir, drive_files$name[i])
-  
   if (!file.exists(local_path)) {
     message(paste("Downloading", drive_files$name[i]))
-    drive_download(as_id(drive_files$id[i]),
-                   path = local_path,
-                   overwrite = TRUE)
+    drive_download(as_id(drive_files$id[i]), path = local_path, overwrite = TRUE)
   } else {
     message(paste("Already exists:", drive_files$name[i]))
   }
@@ -75,6 +73,9 @@ crosstab_long <- demervallei %>%
 # ==========================
 # 4️⃣ Generate Heatmaps for EENH1 Starting with 'h' & 'm'
 # ==========================
+
+# Set target folder in Drive
+target_folder_id <- "1AhkgIEDFaVP7KGcbBxA6lHT8hdAo5hiM" 
 
 # Define the output folder
 output_dir <- "output/BWK_exploration"
@@ -146,8 +147,14 @@ for (letter in selected_letters) {
   
   # Save the heatmap with dynamic figure size
   if (nrow(plot_data) > 0) {
-    ggsave(filename = paste0(output_dir, "/Demervallei_heatmap_", letter, ".png"),
+    ggsave(filename = paste0(output_dir, "/Crosstab_BWK/Demervallei_heatmap_", letter, ".png"),
            plot = p, width = plot_width, height = plot_height, dpi = 300)
+    # Upload file
+    drive_upload(
+      media = paste0(output_dir, "/Crosstab_BWK/Demervallei_heatmap_", letter, ".png"),
+      path = as_id(target_folder_id),
+      overwrite =  TRUE
+    )
   }
 }
 
@@ -156,16 +163,33 @@ for (letter in selected_letters) {
 # ==========================
 # 5️⃣ Save Separate Shapefiles for 'h' & 'm'
 # ==========================
+# Set target folder in Drive
+target_folder_id2 <- "1CNbyv0XRaMYUYMKfjfkpJ8nZYa-Xsd_F" 
 
-# Function to save a filtered shapefile
-save_filtered_shapefile <- function(letter) {
+# Function to save filtered data as .gpkg
+save_filtered_geopackage <- function(letter) {
   filtered_data <- filter(demervallei, EENH1_Group == letter)
   
   if (nrow(filtered_data) > 0) {
-    st_write(filtered_data, paste0(output_dir, "/Demervallei_BWK2023_", letter, ".shp"), delete_layer = TRUE)
+    gpkg_path <- file.path(output_dir, paste0("BWK_per_class/Demervallei_BWK2023_", letter, ".gpkg"))
+    
+    # Save as GeoPackage
+    st_write(filtered_data, gpkg_path, delete_dsn = TRUE)
+    
+    # Upload to Google Drive
+    googledrive::drive_upload(
+      media = gpkg_path,
+      path = as_id(target_folder_id2),
+      overwrite = TRUE
+    )
+    
+    message(paste("Saved and uploaded:", gpkg_path))
+  } else {
+    message(paste("No features found for EENH1_Group =", letter))
   }
 }
 
-# Save shapefiles for 'h' and 'm'
-save_filtered_shapefile("h")
-save_filtered_shapefile("m")
+# Save and upload for 'h' and 'm'
+save_filtered_geopackage("h")
+save_filtered_geopackage("m")
+
