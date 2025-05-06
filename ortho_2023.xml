@@ -1,0 +1,22 @@
+
+<GDAL_WMS>
+  <Service name="WMS">
+    <Version>1.3.0</Version>
+    <ServerUrl>https://geo.api.vlaanderen.be/OMW/wms?</ServerUrl>
+    <Layers>omw_ortho_luchtfoto_jaar__2023</Layers>
+    <ImageFormat>image/jpeg</ImageFormat>
+    <SRS>EPSG:31370</SRS>
+  </Service>
+  <DataWindow>
+    <UpperLeftX>105000</UpperLeftX>
+    <UpperLeftY>196000</UpperLeftY>
+    <LowerRightX>106000</LowerRightX>
+    <LowerRightY>195000</LowerRightY>
+    <SizeX>4000</SizeX>
+    <SizeY>4000</SizeY>
+  </DataWindow>
+  <BandsCount>3</BandsCount>
+  <BlockSizeX>256</BlockSizeX>
+  <BlockSizeY>256</BlockSizeY>
+</GDAL_WMS>
+
