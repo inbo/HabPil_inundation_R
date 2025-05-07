@@ -5,7 +5,7 @@ library(dplyr)
 # --- Configuration ---
 # --- Input and Output Files ---
 input_file_path <- "E:/2025_BiodiversaHabPilot/Inundation/Labeled LabelMe/Afbakening extra Webbekoms Broek buiten SBZ/2023/Conversion to shapefile/polygons_py.shp"
-output_file_path <- "output/labeled/Afbakening extra Webbekoms Broek buiten SBZ/2023/Web_Broek_2023_final_labeled_v2.gpkg" # Changed output name for new version
+output_file_path <- "output/labeled/Afbakening extra Webbekoms Broek buiten SBZ/2023/Web_Broek_2023_final_labeled.gpkg" # Changed output name for new version
 
 # --- Grid Boundary File & Tile ID ---
 grid_boundary_file_path <- "data/Tiles LabelMe/Afbakening extra Webbekoms Broek buiten SBZ/Tiles_sel.shp"
@@ -360,56 +360,7 @@ if (length(valid_final_layers) > 0) {
 }
 
 
-# --- Step 7: Final Clipping to Valid Tiles Area (if applicable) ---
-message("7. Preparing final object for output (clipping if needed)...")
-output_object <- final_object_for_output # Start with object from previous steps
-
-if (use_tile_specific_background) { # This flag now also controls final clipping
-  if (!is.null(valid_tiles_sf) && nrow(valid_tiles_sf) > 0) {
-    message("    - Clipping final output to the combined area of valid tiles...")
-    valid_tiles_union_geom <- st_union(st_geometry(valid_tiles_sf)) %>% safe_make_valid()
-    if (!is.null(valid_tiles_union_geom) && !all(st_is_empty(valid_tiles_union_geom))) {
-      if (nrow(output_object) > 0) {
-        output_object <- safe_make_valid(output_object) # Ensure valid before clipping
-        initial_rows = nrow(output_object); initial_area = tryCatch(sum(st_area(output_object)), error=function(e) NA)
-        
-        output_object_clipped <- tryCatch({st_intersection(output_object, valid_tiles_union_geom)}, error = function(e) {
-          message("      - WARNING: Error during final clipping: ", conditionMessage(e));
-          # Decide on fallback: return original output_object or an empty one
-          # For safety, returning original object might be better than empty if clip fails.
-          # Or, if clipping is essential, maybe stop or return empty. Here, we proceed with original.
-          output_object
-        })
-        # Process clipped object
-        output_object_clipped <- output_object_clipped %>% filter(!st_is_empty(geometry))
-        if (nrow(output_object_clipped) > 0) {
-          output_object <- safe_make_valid(output_object_clipped)
-        } else if (nrow(output_object) > 0 && initial_rows > 0){ # if clipping resulted in empty, but original was not
-          message("      - WARNING: Clipping resulted in an empty layer. Check for CRS or extent issues. Using pre-clip object for safety if it was not empty.")
-          # Retaining output_object (pre-clip) can be an option, or setting it to empty:
-          # output_object <- output_object[0,] # Set to empty if strict clipping required and it fails
-        } else { # original was already empty or clip truly results in empty validly
-          output_object <- output_object_clipped # which is empty
-        }
-        
-        final_rows = nrow(output_object); final_area = if(final_rows > 0 && inherits(output_object,"sf") && "geometry" %in% names(output_object)) tryCatch(sum(st_area(output_object)), error=function(e) NA) else units::set_units(0, "m^2")
-        message(sprintf("      - Clipping result: %d features (was %d), Area %s (was %s)", final_rows, initial_rows, format(final_area), format(initial_area)))
-      } else message("      - Object to be clipped is already empty.")
-    } else message("      - WARNING: Union of valid tiles is empty/invalid, skipping final clip.")
-  } else {
-    message("    - NOTE: Tile-specific mode enabled for background/clipping, but no valid tiles found. Final output might be empty or not clipped as expected.")
-    # If use_tile_specific_background is true and no valid tiles, output_object (if derived from such background) could be empty.
-    # If output_object has data from a global source (which shouldn't happen if use_tile_specific_background is strictly followed for background source),
-    # then this message implies it won't be clipped.
-    # To strictly enforce empty if no valid tiles when use_tile_specific_background is true:
-    # output_object <- output_object[0, ]
-    # message("    - Forcing empty output as no valid tiles for tile-specific mode.")
-  }
-} else {
-  message("    - Global background mode was used, no final clipping to specific tiles applied based on 'use_tile_specific_background' flag.")
-}
-
-# --- Step 8: Write Output ---
+# --- Step 7: Write Output ---
 output_dir <- dirname(output_file_path)
 if (!dir.exists(output_dir)) {
   message("Attempting to create output directory: ", output_dir)
