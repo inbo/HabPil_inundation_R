@@ -1,21 +1,63 @@
 # Load required R packages
 library(sf)
 library(dplyr)
+library(googledrive)
+library(tools)
 
 # --- Configuration ---
+source("source/gdrive_utils.R") 
+source("source/config.R") 
+
 # --- Input and Output Files ---
-input_file_path <- "E:/2025_BiodiversaHabPilot/Inundation/Labeled LabelMe/Afbakening extra Webbekoms Broek buiten SBZ/2023/Conversion to shapefile/polygons_py.shp"
-output_file_path <- "output/labeled/Afbakening extra Webbekoms Broek buiten SBZ/2023/Web_Broek_2023_final_labeled.gpkg" # Changed output name for new version
 
-# --- Grid Boundary File & Tile ID ---
-grid_boundary_file_path <- "data/Tiles LabelMe/Afbakening extra Webbekoms Broek buiten SBZ/Tiles_sel.shp"
-tile_id_column_name <- "TileID"  # Column containing unique Tile Identifiers
+# Global variable to track Google Drive authentication status within the session
+#.gdrive_authenticated <- FALSE
 
-# --- Behavior Flags ---
-# TRUE: Initial background derived from valid tiles; final output clipped to these tiles.
-# FALSE: Initial background derived from global dissolved grid; no final clip to specific tiles.
-use_tile_specific_background <- TRUE
-background_label <- "not inundated"  # Label for the background
+if (!exists(".gdrive_authenticated") || !.gdrive_authenticated) {
+  .gdrive_authenticated <- authenticate_gdrive()
+}
+
+
+datasets_to_download_config <- list(
+  list(
+    name = "PolygonsData", # Key for the returned list of paths
+    gdrive_id = gdrive_id_labels, 
+    target_filename = target_filename_labels,
+    local_subfolder = polygons_subfolder_variable 
+    ),
+  list(
+    name = "TilesData",    # Key for the returned list of paths
+    gdrive_id = gdrive_id_tiles, 
+    target_filename = target_filename_tiles,
+    local_subfolder = tiles_subfolder_variable
+    )
+  )
+
+# --- Execute Downloads ---
+message("\n--- Starting GDrive Download Process ---")
+
+# Download the shapefile components for labels and tiles
+downloaded_paths <- perform_project_data_acquisition(
+  datasets_config = datasets_to_download_config,
+  base_cache_dir = my_base_dir
+  )
+
+message("\n--- GDrive Download Process Completed ---")
+message("Check the specified subdirectories within '", my_base_dir, "' for your downloaded files.")
+
+
+
+# Reuse the paths of the downloaded shapefiles:
+if (!is.null(downloaded_paths) && !is.null(downloaded_paths$PolygonsData)) {
+  input_file_path <- file.path(downloaded_paths$PolygonsData, target_filename_labels)
+  message("Path to polygons_py.shp: ", input_file_path)
+  }
+
+if (!is.null(downloaded_paths) && !is.null(downloaded_paths$TilesData)) {
+  grid_boundary_file_path <- file.path(downloaded_paths$TilesData, target_filename_tiles)
+  message("Path to Tiles_sel.shp: ", grid_boundary_file_path)
+  }
+
 
 # --- Function for safe geometry repair ---
 safe_make_valid <- function(sf_object) {
