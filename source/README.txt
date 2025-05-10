@@ -1,7 +1,6 @@
 --- DESCRIPTION SCRIPTS---
 
 
-
 - Post-processing LabelMe output.R - 
 In this script, the shapefile with individual(and possibly overlapping) 
 polygons is converted to a geopackage with non-overlapping polygons 
@@ -24,3 +23,5 @@ This script has two helper scripts
 running the script
 - grdive-utils.R - contains the functions needed for downloading the 
 necessary data to the local 'data' folder
+- spatial_processing_utils.R - contains the functions needed for the actual
+  spatial processing
