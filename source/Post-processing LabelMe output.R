@@ -35,6 +35,14 @@ source_if_exists(gdrive_utils_path, "Google Drive utilities (gdrive_utils.R)")
 source_if_exists(config_path, "Configuration settings (config.R)") # Loads variables like study_site_name
 source_if_exists(spatial_utils_path, "Spatial processing utilities (spatial_processing_utils.R)")
 
+my_base_dir <- file.path(data_root_dir, "LabelMe", study_site_name, study_year)
+if (!dir.exists(my_base_dir )) {
+  message("Local cache directory '", my_base_dir , "' does not exist. Creating it.")
+  dir.create(my_base_dir , recursive = TRUE, showWarnings = TRUE)
+} else {
+  message("Using existing local cache directory: ", my_base_dir )
+}
+
 
 # --- 3. Google Drive Authentication & Data Download ---
 message("Authenticating with Google Drive...")
@@ -137,6 +145,8 @@ if (is.null(output_object_sf) || !inherits(output_object_sf, "sf")) {
 
 # --- 7. Write Output ---
 message("\n--- Preparing to Write Output ---")
+output_gpkg_filename <- paste0(study_site_name, "_", study_year, 
+                               "_final_labeled.gpkg") # Dynamic filename
 output_file_path <- file.path(output_root_dir, "labeled", study_site_name, study_year, output_gpkg_filename)
 message("Full output GPKG path will be: ", output_file_path)
 # Ensure the output directory exists
