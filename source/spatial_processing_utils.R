@@ -497,4 +497,32 @@ process_spatial_layers <- function(input_labels_path,
   return(final_output_object)
 }
 
-message("Spatial processing utility functions defined (safe_make_valid, dissolve_by_label, and new sub-functions).")
+sample_with_min_dist <- function(polygons, n_target, min_dist, oversample_factor = 10) {
+  n_target <- max(0, floor(n_target))
+  if (n_target == 0) { message(" -> Target is 0 points."); return(sf::st_sf(geometry = sf::st_sfc(crs = sf::st_crs(polygons)))) }
+  if (!inherits(polygons, "sf")) { polygons <- sf::st_sf(geometry = polygons) }
+  n_candidates <- max(ceiling(n_target * oversample_factor), 100)
+  message(paste(" -> Generating", n_candidates, "candidate points..."))
+  candidate_points_sfc <- sf::st_sample(polygons, size = n_candidates, type = "random", exact = TRUE)
+  if (length(candidate_points_sfc) == 0) { warning("Could not generate any candidate points."); return(sf::st_sf(geometry = sf::st_sfc(crs = sf::st_crs(polygons)))) }
+  n_generated_candidates <- length(candidate_points_sfc); message(paste(" ->", n_generated_candidates, "candidates generated."))
+  if (n_target == 1 || n_generated_candidates == 1) { message(" -> Selecting the first candidate point."); return(sf::st_sf(geometry = candidate_points_sfc[1])) }
+  candidate_points_sf <- sf::st_sf(geometry = candidate_points_sfc)
+  shuffled_indices <- sample(1:n_generated_candidates); selected_indices <- c(shuffled_indices[1])
+  message(" -> Starting thinning process to ensure minimum distance...")
+  pb <- txtProgressBar(min = 0, max = length(shuffled_indices), style = 3)
+  for (i in 2:length(shuffled_indices)) {
+    setTxtProgressBar(pb, i); current_candidate_index <- shuffled_indices[i]
+    selected_points_geom <- candidate_points_sf$geometry[selected_indices]; current_point_geom <- candidate_points_sf$geometry[current_candidate_index]
+    distances <- sf::st_distance(current_point_geom, selected_points_geom)
+    tolerance <- units::set_units(1e-6, "m")
+    if (min(distances) >= (min_dist - tolerance)) { selected_indices <- c(selected_indices, current_candidate_index) }
+    if (length(selected_indices) >= n_target) { setTxtProgressBar(pb, length(shuffled_indices)); break }
+  }
+  close(pb); final_points_sf <- candidate_points_sf[selected_indices, ]
+  n_final <- nrow(final_points_sf); message(paste(" ->", n_final, "points selected."))
+  if (n_final < n_target) { warning(paste("Could only generate", n_final, "of target", n_target, "points respecting", min_dist, "distance")) }
+  return(final_points_sf)
+}
+
+message("Spatial processing utility functions defined (safe_make_valid, dissolve_by_label, sample_with_min_dist and new sub-functions).")
