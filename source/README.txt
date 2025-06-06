@@ -5,7 +5,7 @@
 In this script, the shapefile with individual(and possibly overlapping) 
 polygons is converted to a geopackage with non-overlapping polygons 
 that completely fill the selected tiles.
-.
+
 The input shapefile was created with 'Convert_json_to_polygons_new.py' 
 in the folder 2025_LabelMe/Labelme.
 
@@ -25,3 +25,4 @@ running the script
 necessary data to the local 'data' folder
 - spatial_processing_utils.R - contains the functions needed for the actual
   spatial processing
+  
