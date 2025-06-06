@@ -357,5 +357,4 @@ if (exists("output_root_dir") && exists("study_site_name") && exists("study_year
 message("\nStep 9: Raster value extraction finished.")
 
 
-
 message("\nScript finished.")
