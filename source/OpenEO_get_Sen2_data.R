@@ -42,7 +42,8 @@ datacube <- processes$load_collection(
 # -----------------------------------------------
 # 5 Create and Start OpenEO Job
 # -----------------------------------------------
-job = create_job(graph=datacube, title = "Web_broek_extra_2023_Rjob", description = "Getting Sen2 data for Web_broek_extra 2023")
+job = create_job(graph=datacube, title = "Web_broek_extra_2023_Rjob", 
+                 description = "Getting Sen2 data for Web_broek_extra 2023")
 start_job(job=job)
 
 list_jobs()
