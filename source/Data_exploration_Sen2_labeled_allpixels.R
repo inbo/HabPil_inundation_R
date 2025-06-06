@@ -266,7 +266,7 @@ if (!all(c("dominant_label", "mixture_category") %in% names(pixel_data_df))) {
     print(stacked_bar_plot)
     message("--> Stacked horizontal bar plot with corrected legend order generated successfully. ✅")
     
-    # Optional: Save the plot
+    # Save the plot
     plot_output_dir <- file.path(output_root_dir, "plots", study_site_name, study_year)
     if (!dir.exists(plot_output_dir)) dir.create(plot_output_dir, recursive = TRUE)
     plot_filepath <- file.path(plot_output_dir, paste0(study_site_name, "_", study_year, "_stacked_bar_plot.png"))
@@ -628,9 +628,33 @@ if (model_object_name_in_file %in% loaded_object_names) {
   stop(paste("Model object '", model_object_name_in_file, "' not found in the loaded .RData file."))
 }
 
+# --- 4.1a: Programmatically Identify Model Predictors ---
+message("--> Inspecting the loaded model object to identify required predictors...")
+
+# The model object stores the names of the variables it was trained on.
+# We can access them through the 'terms' attribute.
+# This avoids the printing error and gives us the exact list.
+required_predictors_from_model <- NULL
+if (inherits(loaded_decision_tree, "rpart")) {
+  if (!is.null(loaded_decision_tree$terms)) {
+    # 'term.labels' attribute contains the predictor names
+    required_predictors_from_model <- attr(loaded_decision_tree$terms, "term.labels")
+  }
+}
+
+if (is.null(required_predictors_from_model) || length(required_predictors_from_model) == 0) {
+  message("[WARN] Could not automatically determine predictors. Will fall back to manual list.")
+  # Define the list manually as a fallback
+  predictor_cols <- c("ndvi", "ndwi_mf", "mndwi11", "mndwi12", "ndmi_gao11")
+  # You would have to manually add 'b02', etc. to this list.
+} else {
+  message("    Predictors required by the model have been identified automatically:")
+  print(required_predictors_from_model)
+  # Use this automatically generated list for prediction
+  predictor_cols <- required_predictors_from_model
+}
+
 # --- 4.2: Prepare Data and Make Predictions ---
-# The model requires specific predictor columns. These are now lowercase.
-predictor_cols <- c("ndvi", "ndwi_mf", "mndwi11", "mndwi12", "ndmi_gao11")
 missing_predictors <- predictor_cols[!(predictor_cols %in% names(pixel_data_df))]
 if (length(missing_predictors) > 0) {
   stop(paste("The following predictor columns required by the model are missing:", paste(missing_predictors, collapse=", ")))
@@ -668,7 +692,394 @@ if ("dominant_label" %in% names(pixel_data_df)) {
   message("[WARN] 'dominant_label' column not found, cannot create comparison table.")
 }
 message("--> Model application complete. ✅")
-# --- End of Part 4 ---
 
+
+# --- Calculate Recall, Precision, AND F1 Score by Mixture Level ---
+message("\n--> Calculating recall, precision, and F1 score, subdivided by mixture level...")
+
+# Prerequisites: Check if the necessary data frame and columns are available.
+if (!exists("pixel_data_df") || !all(c("dominant_label", "mixture_category", "predicted_jussila") %in% names(pixel_data_df))) {
+  message("    [WARN] 'pixel_data_df' with required columns not found. Skipping metrics calculation.")
+} else {
+  
+  # 1. Prepare data for evaluation
+  message("    Preparing data for evaluation by mapping reference labels to 'water' and 'dry' classes...")
+  evaluation_df <- pixel_data_df %>%
+    mutate(reference_class = case_when(
+      dominant_label == 'inundated' ~ 'water',
+      dominant_label %in% c('not inundated', 'other') ~ 'dry',
+      TRUE ~ NA_character_
+    )) %>%
+    filter(
+      !is.na(reference_class),
+      predicted_jussila %in% c('water', 'dry')
+    )
+  
+  if (nrow(evaluation_df) == 0) {
+    message("    [INFO] No data available for evaluation after filtering. Please check labels.")
+  } else {
+    
+    # 2. Loop through each mixture level to calculate metrics
+    mixture_levels_in_data <- unique(evaluation_df$mixture_category)
+    results_list <- list()
+    
+    for (level in mixture_levels_in_data) {
+      message(paste("    Calculating metrics for mixture level:", level))
+      subset_df <- evaluation_df %>% filter(mixture_category == level)
+      
+      if (nrow(subset_df) > 0) {
+        # --- Metrics for the "water" class ---
+        TP_water <- sum(subset_df$reference_class == "water" & subset_df$predicted_jussila == "water")
+        FP_water <- sum(subset_df$reference_class == "dry"   & subset_df$predicted_jussila == "water")
+        FN_water <- sum(subset_df$reference_class == "water" & subset_df$predicted_jussila == "dry")
+        recall_water <- ifelse((TP_water + FN_water) > 0, TP_water / (TP_water + FN_water), 0)
+        precision_water <- ifelse((TP_water + FP_water) > 0, TP_water / (TP_water + FP_water), 0)
+        f1_score_water <- ifelse((precision_water + recall_water) > 0, 2 * (precision_water * recall_water) / (precision_water + recall_water), 0)
+        
+        # --- Metrics for the "dry" class ---
+        TP_dry <- sum(subset_df$reference_class == "dry"   & subset_df$predicted_jussila == "dry")
+        FP_dry <- sum(subset_df$reference_class == "water" & subset_df$predicted_jussila == "dry")
+        FN_dry <- sum(subset_df$reference_class == "dry"   & subset_df$predicted_jussila == "water")
+        recall_dry <- ifelse((TP_dry + FN_dry) > 0, TP_dry / (TP_dry + FN_dry), 0)
+        precision_dry <- ifelse((TP_dry + FP_dry) > 0, TP_dry / (TP_dry + FP_dry), 0)
+        f1_score_dry <- ifelse((precision_dry + recall_dry) > 0, 2 * (precision_dry * recall_dry) / (precision_dry + recall_dry), 0)
+        
+        # Store results for this level
+        level_results <- data.frame(
+          class_of_interest = c("water", "dry"),
+          recall = c(recall_water, recall_dry),
+          precision = c(precision_water, precision_dry),
+          f1_score = c(f1_score_water, f1_score_dry), # Added F1 Score
+          support_actual = c(TP_water + FN_water, TP_dry + FN_dry)
+        )
+        results_list[[level]] <- level_results
+      }
+    }
+    
+    # 3. Combine and display the final summary table
+    if (length(results_list) > 0) {
+      final_summary_df <- dplyr::bind_rows(results_list, .id = "mixture_level")
+      final_summary_df$mixture_level <- factor(final_summary_df$mixture_level, levels = c("pure", "mixed", "very_mixed"))
+      
+      final_summary_df <- final_summary_df %>%
+        arrange(mixture_level, class_of_interest) %>%
+        select(mixture_level, class_of_interest, recall, precision, f1_score, support_actual) %>%
+        mutate(across(c(recall, precision, f1_score), ~round(.x, 3)))
+      
+      message("\n    --- Model Performance Summary (with F1 Score) by Mixture Level ---")
+      print(final_summary_df, row.names = FALSE)
+      message("    ---------------------------------------------------------------------\n")
+    }
+  }
+}
+message("--> Metrics calculation (including F1 score) complete. ✅")
+
+
+# --- 4.4: Generate Line Plots for Model Performance Metrics ---
+message("\n--> Generating line plots for recall, precision,and F1 score...")
+
+# Prerequisite: Check if the final_summary_df from the metrics calculation exists.
+if (!exists("final_summary_df") || !is.data.frame(final_summary_df)) {
+  message("    [WARN] 'final_summary_df' not found. Skipping metrics plot.")
+} else {
+  
+  # 1. Prepare data for plotting by reshaping it (this part remains the same)
+  plot_data_metrics <- final_summary_df %>%
+    select(mixture_level, class_of_interest, recall, precision, f1_score) %>%
+    tidyr::pivot_longer(
+      cols = c(recall, precision, f1_score),
+      names_to = "metric_name",
+      values_to = "metric_value"
+    )
+  
+  # 2. Define colors to match your previous plots
+  metric_plot_colors <- c(
+    "water" = "#4cd2de",
+    "dry" = "#dc5199"
+  )
+  
+  # 3. Order factors for a clean plot layout
+  # This ensures the x-axis and facets are in a logical order.
+  plot_data_metrics$metric_name <- factor(plot_data_metrics$metric_name, levels = c("recall", "precision", "f1_score"))
+  plot_data_metrics$mixture_level <- factor(plot_data_metrics$mixture_level, levels = c("pure", "mixed", "very_mixed"))
+  
+  # 4. Generate the faceted line plot
+  message("    Generating faceted line plot...")
+  metrics_line_plot <- ggplot(plot_data_metrics, 
+                              aes(x = mixture_level, y = metric_value, 
+                                  group = class_of_interest, # Tell ggplot which points to connect
+                                  color = class_of_interest)) + # Color the lines by class
+    
+    # Add the lines to show the trend
+    geom_line(linewidth = 1.2) +
+    
+    # Add points to mark the exact values at each mixture level
+    geom_point(size = 3.5, stroke = 1.5, aes(shape = class_of_interest)) +
+    
+    # Create the three separate panels for recall, precision, and f1_score
+    facet_wrap(~ metric_name) +
+    
+    # Add the numeric value label near each point for clarity
+    geom_text(
+      aes(label = sprintf("%.2f", metric_value)), # Format to 2 decimal places
+      vjust = -1.5, # Position text just above the point
+      size = 3.5,
+      show.legend = FALSE # Prevent text from getting a legend entry
+    ) +
+    
+    # Apply your custom color scheme to the lines and points
+    scale_color_manual(name = "Class", values = metric_plot_colors) +
+    # Manually define shapes for better accessibility (e.g., color-blind friendly)
+    scale_shape_manual(name = "Class", values = c("water" = 16, "dry" = 17)) + # 16=filled circle, 17=filled triangle
+    
+    # Set y-axis limits to be 0-1
+    coord_cartesian(ylim = c(0, 1.05)) + # Go slightly above 1 to make room for text
+    
+    # Customize labels and theme
+    labs(
+      title = "Model Performance Trend Across Mixture Levels",
+      subtitle = paste("Site:", study_site_name, "| Year:", study_year),
+      x = "Mixture Level",
+      y = "Score"
+    ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+      plot.subtitle = element_text(hjust = 0.5, size = 12),
+      strip.text = element_text(face = "bold", size = 11), # Facet titles (recall, precision, etc.)
+      legend.position = "top"
+    )
+  
+  # 5. Save the plot to a file
+  # This uses variables like 'output_root_dir' defined in your script's configuration section.
+  plot_output_dir <- file.path(output_root_dir, "plots", study_site_name, study_year)
+  if (!dir.exists(plot_output_dir)) {
+    message(paste("    Creating plot output directory:", plot_output_dir))
+    dir.create(plot_output_dir, recursive = TRUE)
+  }
+  
+  plot_output_dir <- file.path(output_root_dir, "plots", study_site_name, study_year)
+  plot_filename <- paste0(study_site_name, "_", study_year, "_metrics_line_plot.png")
+  plot_filepath <- file.path(plot_output_dir, plot_filename)
+  
+  message(paste("    Saving plot to:", plot_filepath))
+  tryCatch({
+    ggsave(
+      filename = plot_filepath,
+      plot = metrics_line_plot,
+      width = 10, # inches
+      height = 6, # inches
+      dpi = 300
+    )
+    message("    Plot saved successfully.")
+  }, error = function(e) {
+    message(paste("[WARN] Could not save the line plot. Reason:", e$message))
+  })
+  
+  print(metrics_line_plot)
+  message("--> Metrics line plot generated successfully. ✅")
+}
+
+# --- 4.5: Visualize Reference vs. Prediction Mapping ---
+
+message("\n--> Generating overall plot to visualize mapping of reference labels to predictions...")
+
+# Prerequisites: Check for necessary data and packages.
+if (!exists("pixel_data_df") || !all(c("dominant_label", "predicted_jussila") %in% names(pixel_data_df))) {
+  message("    [WARN] 'pixel_data_df' with 'dominant_label' and 'predicted_jussila' not found. Skipping plot.")
+} else if (!requireNamespace("scales", quietly = TRUE)) {
+  message("    [WARN] 'scales' package not found (needed for formatting percentages). Skipping plot.")
+} else {
+  
+  # 1. Prepare data by counting each combination of reference vs. prediction.
+  message("    Summarizing prediction counts for each reference label...")
+  plot_data_flow <- pixel_data_df %>%
+    filter(!is.na(dominant_label) & !is.na(predicted_jussila)) %>%
+    count(dominant_label, predicted_jussila, name = "pixel_count") %>%
+    group_by(dominant_label) %>%
+    mutate(proportion = pixel_count / sum(pixel_count)) %>%
+    ungroup()
+  
+  if (nrow(plot_data_flow) == 0) {
+    message("    [INFO] No data available to plot after filtering and counting.")
+  } else {
+    
+    # 2. Define colors for the prediction classes ("water" and "dry").
+    prediction_colors <- c(
+      "water" = "#4cd2de",
+      "dry" = "#dc5199"
+    )
+    
+    # --- SET CUSTOM AXIS ORDER ---
+    message("    Applying manual order to the y-axis labels for consistency...")
+    # Define your desired order from top to bottom.
+    manual_order <- c('inundated', 'not inundated', 'other', 'uncertain')
+    
+    # ggplot plots factors from the first level at the bottom to the last level at the top.
+    # To get our desired order, we reverse it for the 'levels' argument.
+    # We also filter for levels that are actually in the data to avoid errors.
+    levels_present_in_data <- manual_order[manual_order %in% unique(plot_data_flow$dominant_label)]
+    plot_data_flow$dominant_label <- factor(plot_data_flow$dominant_label, levels = rev(levels_present_in_data))
+    # --- END OF ORDERING ---
+    
+    # 3. Prepare titles with automatic line wrapping.
+    main_title_text <- "How Reference Labels Map to Model Predictions (Overall)"
+    subtitle_text <- "Each bar shows the proportional breakdown of model predictions for a given reference label"
+    wrapped_title <- paste(strwrap(main_title_text, width = 50), collapse = "\n")
+    wrapped_subtitle <- paste(strwrap(subtitle_text, width = 60), collapse = "\n")
+    
+    # 4. Create the 100% stacked bar chart.
+    message("    Generating 100% stacked bar chart...")
+    mapping_plot <- ggplot(plot_data_flow, 
+                           aes(y = dominant_label, x = proportion, fill = predicted_jussila)) +
+      
+      geom_col(position = "fill") +
+      geom_text(
+        aes(label = scales::percent(proportion, accuracy = 1)),
+        position = position_fill(vjust = 0.5),
+        color = "white",
+        fontface = "bold",
+        size = 3.5
+      ) +
+      scale_fill_manual(
+        name = "Model Prediction",
+        values = prediction_colors
+      ) +
+      scale_y_discrete(drop = FALSE) + # Ensures all factor levels are shown, even if they have no data
+      scale_x_continuous(labels = scales::percent) +
+      labs(
+        title = wrapped_title,
+        subtitle = wrapped_subtitle,
+        x = "Proportion of Predictions",
+        y = "Reference Label"
+      ) +
+      theme_bw() + 
+      theme(
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 10),
+        legend.position = "top"
+      )
+    
+    print(mapping_plot)
+    message("--> Overall mapping visualization generated successfully. ✅")
+    
+    # 5. Save the plot.
+    plot_output_dir <- file.path(output_root_dir, "plots", study_site_name, study_year)
+    if (!dir.exists(plot_output_dir)) dir.create(plot_output_dir, recursive = TRUE)
+    plot_filename <- paste0(study_site_name, "_", study_year, "_label_mapping_plot_overall.png")
+    plot_filepath <- file.path(plot_output_dir, plot_filename)
+    
+    message(paste("    Saving plot to:", plot_filepath))
+    tryCatch({
+      ggsave(
+        filename = plot_filepath,
+        plot = mapping_plot,
+        width = 8, 
+        height = 6,
+        dpi = 300
+      )
+      message("    Plot saved successfully.")
+    }, error = function(e) {
+      message(paste("[WARN] Could not save the plot. Reason:", e$message))
+    })
+  }
+}
+
+# --- Generate and Save Faceted Mapping Plot by Mixture Level ---
+message("\n--> Generating faceted plot to visualize reference vs. prediction mapping by mixture level...")
+
+# Prerequisites: Check for necessary data and packages.
+if (!exists("pixel_data_df") || !all(c("dominant_label", "predicted_jussila", "mixture_category") %in% names(pixel_data_df))) {
+  message("    [WARN] 'pixel_data_df' with required columns not found. Skipping plot.")
+} else if (!requireNamespace("scales", quietly = TRUE)) {
+  message("    [WARN] 'scales' package not found (needed for formatting percentages). Skipping plot.")
+} else {
+  
+  # 1. Prepare data by counting each combination, including mixture_category.
+  message("    Summarizing prediction counts for each reference label within each mixture level...")
+  plot_data_faceted <- pixel_data_df %>%
+    filter(!is.na(dominant_label) & !is.na(predicted_jussila) & !is.na(mixture_category)) %>%
+    count(mixture_category, dominant_label, predicted_jussila, name = "pixel_count") %>%
+    group_by(mixture_category, dominant_label) %>%
+    mutate(proportion = pixel_count / sum(pixel_count)) %>%
+    ungroup()
+  
+  if (nrow(plot_data_faceted) == 0) {
+    message("    [INFO] No data available to plot after filtering and counting.")
+  } else {
+    
+    # 2. Define colors for the prediction classes ("water" and "dry").
+    prediction_colors <- c(
+      "water" = "#4cd2de",
+      "dry" = "#dc5199"
+    )
+    
+    # 3. Order factors for a clean plot layout.
+    plot_data_faceted$mixture_category <- factor(plot_data_faceted$mixture_category, levels = c("pure", "mixed", "very_mixed"))
+    manual_order <- c('inundated', 'not inundated', 'other', 'uncertain')
+    # Use rev() to have 'inundated' appear at the top in a horizontal plot
+    plot_data_faceted$dominant_label <- factor(plot_data_faceted$dominant_label, levels = rev(manual_order))
+    
+    # 4. Prepare titles with automatic line wrapping.
+    main_title_text <- "How Reference Labels Map to Model Predictions, by Mixture Level"
+    subtitle_text <- "Each panel shows a different mixture category of reference pixels"
+    wrapped_title <- paste(strwrap(main_title_text, width = 60), collapse = "\n")
+    wrapped_subtitle <- paste(strwrap(subtitle_text, width = 70), collapse = "\n")
+    
+    # 5. Create the 100% stacked bar chart, faceted by mixture_category.
+    message("    Generating faceted 100% stacked bar chart...")
+    faceted_mapping_plot <- ggplot(plot_data_faceted, 
+                                   aes(x = dominant_label, y = proportion, fill = predicted_jussila)) +
+      geom_col(position = "fill") +
+      facet_wrap(~ mixture_category, ncol = 3) + # Creates 3 panels, side-by-side
+      geom_text(
+        aes(label = if_else(proportion > 0.02, scales::percent(proportion, accuracy = 1), "")),
+        position = position_fill(vjust = 0.5),
+        color = "white",
+        fontface = "bold",
+        size = 3.5
+      ) +
+      scale_fill_manual(name = "Model Prediction", values = prediction_colors) +
+      scale_y_continuous(labels = scales::percent) +
+      coord_flip() +
+      labs(
+        title = wrapped_title,
+        subtitle = wrapped_subtitle,
+        x = "Reference Label",
+        y = "Proportion of Predictions"
+      ) +
+      theme_bw() +
+      theme(
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 10),
+        strip.text = element_text(face = "bold", size = 11),
+        legend.position = "top"
+      )
+    
+    print(faceted_mapping_plot)
+    message("--> Faceted mapping visualization generated successfully. ✅")
+    
+    # 6. Save the plot to a file.
+    plot_output_dir <- file.path(output_root_dir, "plots", study_site_name, study_year)
+    if (!dir.exists(plot_output_dir)) dir.create(plot_output_dir, recursive = TRUE)
+    plot_filename <- paste0(study_site_name, "_", study_year, "_label_mapping_faceted_plot.png")
+    plot_filepath <- file.path(plot_output_dir, plot_filename)
+    
+    message(paste("    Saving plot to:", plot_filepath))
+    tryCatch({
+      # A wider dimension is used to accommodate the three side-by-side facets.
+      ggsave(
+        filename = plot_filepath,
+        plot = faceted_mapping_plot,
+        width = 12, # inches
+        height = 7, # inches
+        dpi = 300
+      )
+      message("    Plot saved successfully.")
+    }, error = function(e) {
+      message(paste("[WARN] Could not save the plot. Reason:", e$message))
+    })
+  }
+}
 
 message("\n--- Script processing finished. ---")
