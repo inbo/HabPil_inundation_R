@@ -1,22 +1,64 @@
+# gdrive_utils.R content
+
 # function to authenticate in Google Drive
 authenticate_gdrive <- function() {
   message("Attempting Google Drive authentication...")
+  preferred_email <- "stien.heremans@inbo.be" # <--- Set your email here
+  
+  auth_success <- FALSE # Flag to track overall authentication success
+  
+  # Attempt 1: Authenticate with preferred email
+  message(paste("Attempting authentication with preferred email:", preferred_email))
   tryCatch({
-    # Try to authenticate non-interactively if a token already exists
-    # If you have multiple accounts or need to switch, drive_auth(email = "your_email@example.com") is better.
-    if (googledrive::drive_has_token()) {
-      googledrive::drive_auth() # Will use existing token or re-auth if needed.
+    googledrive::drive_auth(
+      email = preferred_email,
+      cache = ".secrets"
+      # scopes = "https://www.googleapis.com/auth/drive" # Add if specific scopes are needed
+    )
+    
+    # Verify that the correct account was authenticated
+    if (!is.null(googledrive::drive_user()$email) && googledrive::drive_user()$email == preferred_email) {
+      message(paste("Google Drive authentication successful for:", preferred_email))
+      auth_success <- TRUE
     } else {
-      googledrive::drive_auth() # Prompts for authentication
+      warning("Authentication completed, but not for the preferred account. Token might be for a different user.")
+      auth_success <- FALSE # Treat as failure for preferred account
     }
-    message("Google Drive authentication successful.")
-    return(TRUE)
+    
   }, error = function(e) {
-    warning("Google Drive authentication failed. Please ensure you can authenticate. Error: ", conditionMessage(e))
-    return(FALSE)
+    warning(paste("Automated authentication for", preferred_email, "failed. Error:", conditionMessage(e)))
+    auth_success <- FALSE
   })
+  
+  # If preferred authentication failed, ask user for interactive retry
+  if (!auth_success) {
+    user_choice <- tolower(readline("Do you want to try a general interactive Google Drive authentication? (y/n): "))
+    
+    if (user_choice == "y" || user_choice == "yes") {
+      message("Attempting general interactive authentication...")
+      tryCatch({
+        # Attempt 2: General interactive authentication (will prompt in browser to choose account)
+        googledrive::drive_auth(
+          email = TRUE, # Forces prompt to choose an email if multiple are recognized
+          cache = ".secrets"
+          # scopes = "https://www.googleapis.com/auth/drive" # Add if specific scopes are needed
+        )
+        if (googledrive::drive_has_token()) {
+          message(paste("General interactive authentication successful for:", googledrive::drive_user()$email))
+          auth_success <- TRUE
+        } else {
+          warning("General interactive authentication did not result in a valid token.")
+        }
+      }, error = function(e) {
+        warning(paste("General interactive authentication failed. Error:", conditionMessage(e)))
+      })
+    } else {
+      message("Skipping interactive authentication. Google Drive operations may fail.")
+    }
+  }
+  
+  return(auth_success)
 }
-
 
 # function to download google drive files for shapefiles (multiple files needed)
 download_shapefile_components <- function(gdrive_folder_id, target_shp_filename, base_local_cache_dir, local_target_subfolder) {
@@ -65,20 +107,24 @@ download_shapefile_components <- function(gdrive_folder_id, target_shp_filename,
   message("Found ", nrow(files_to_download), " file(s) matching base name '", shapefile_basename, "':")
   print(files_to_download$name)
   
+  # Loop through identified files and download only if missing locally
   for (i in 1:nrow(files_to_download)) {
     file_info <- files_to_download[i, ]
     local_file_path <- file.path(dataset_local_dir, file_info$name)
-    message("Downloading '", file_info$name, "' to '", local_file_path, "'...")
-    tryCatch({
-      googledrive::drive_download(
-        file = as_id(file_info$id),
-        path = local_file_path,
-        overwrite = TRUE
-      )
-      message("Successfully downloaded '", file_info$name, "'.")
-    }, error = function(e) {
-      warning("Failed to download '", file_info$name, "'. Error: ", conditionMessage(e))
-    })
+    if (file.exists(local_file_path)) {
+      message("Local file already exists: '", file_info$name, "'. Skipping download.")
+    } else {
+      message("Downloading '", file_info$name, "' to '", local_file_path, "'...")
+      tryCatch({
+        googledrive::drive_download(
+          file = as_id(file_info$id),
+          path = local_file_path
+        )
+        message("Successfully downloaded '", file_info$name, "'.")
+      }, error = function(e) {
+        warning("Failed to download '", file_info$name, "'. Error: ", conditionMessage(e))
+      })
+    }
   }
   message("Finished processing dataset for target: ", target_shp_filename)
 }
