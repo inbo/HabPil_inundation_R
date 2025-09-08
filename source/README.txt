@@ -28,8 +28,6 @@ Key Features & Analysis Performed:
   are automatically saved to a local output directory and uploaded to predefined
   Google Drive folders.
   
-  
-  
 
 
 - Post-processing LabelMe output.R - 

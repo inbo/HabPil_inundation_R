@@ -18,7 +18,7 @@ study_site_name <- "Demervallei"
 
 # IMPORTANT: Provide the DIRECT Google Drive ID for the specific study site's folder.
 # You will need to find this ID manually from your Google Drive for each study site.
-# it is under 2024_Biodiversa_habitatpilot/WP2_3/Inundation/HabPil_inundation_R data/Data/BWK 2023
+# The path on Google Drive is '2024_Biodiversa_habitatpilot/WP2_3/Inundation/HabPil_inundation_R data/Data/BWK 2023'
 site_specific_gdrive_id <- "1U50pjg3KabLn1cEOxtTlBwp1g6IHxK88" # for Demervallei
 #site_specific_gdrive_id <- "1UGoFGhPSMIB9l5i98OWtW-51nhL9e62G" # for Dijlevallei
 
