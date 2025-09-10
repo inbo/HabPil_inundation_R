@@ -6,7 +6,6 @@ library(readr)       # For reading data
 library(terra)       # For raster data handling
 library(googledrive) # For Google Drive interaction (used via gdrive_utils)
 library(dplyr)       # For data manipulation (used in gdrive_utils)
-library(stringr)     # For strings
 
 
 # ==============================================================================
@@ -15,23 +14,21 @@ library(stringr)     # For strings
 
 # --- Study Site and Data Parameters ---
 # Define the full study site name (for local folder names, job titles etc.)
-#study_site_name <- "Webbekomsbroek"
-#study_site_name <- "Webbekomsbroek2"
+study_site_name <- "Webbekomsbroek"
 #study_site_name <- "Schulensmeer"
-study_site_name <- "Kloosterbeemden"
+#study_site_name <- "Kloosterbeemden"
 
 
 # Define the abbreviation for the study site (used in shapefile names)
 # e.g., "SM", "WB", "KB"
-#study_site_abbreviation <- "WB" 
-#study_site_abbreviation <- "WB2"  
+study_site_abbreviation <- "WB"  
 #study_site_abbreviation <- "SM"  
-study_site_abbreviation <- "KB"  
+#study_site_abbreviation <- "KB"  
 
 # Define the target year for data acquisition (used for lookup table & local folders)
 #target_year <- 2020
-#target_year <- 2021
-target_year <- 2023
+target_year <- 2021
+#target_year <- 2023
 #target_year <- 2024
 
 # Google Drive FILE ID for the Sentinel-2 date look-up table CSV.
@@ -94,16 +91,20 @@ if (!auth_success) {
   stop("Google Drive authentication failed. Cannot download lookup table.")
 }
 
-tryCatch({
-  googledrive::drive_download(
-    file = as_id(sen2_lookup_file_id),
-    path = local_sen2_lookup_table_path,
-    overwrite = TRUE # This ensures any existing local file is replaced
-  )
-  message(paste0("Successfully downloaded lookup table to: ", local_sen2_lookup_table_path))
-}, error = function(e) {
-  stop(paste0("Failed to download lookup table from Google Drive. Error: ", conditionMessage(e)))
-})
+if (!file.exists(local_sen2_lookup_table_path)) {
+  tryCatch({
+    googledrive::drive_download(
+      file = as_id(sen2_lookup_file_id),
+      path = local_sen2_lookup_table_path,
+      overwrite = TRUE # Always overwrite to ensure latest version or if interrupted
+    )
+    message(paste0("Successfully downloaded lookup table to: ", local_sen2_lookup_table_path))
+  }, error = function(e) {
+    stop(paste0("Failed to download lookup table from Google Drive. Error: ", conditionMessage(e)))
+  })
+} else {
+  message(paste0("Lookup table already exists locally: ", local_sen2_lookup_table_path, ". Skipping download."))
+}
 
 
 if (!file.exists(local_sen2_lookup_table_path)) {
@@ -239,7 +240,7 @@ openeo_output_format <- "GTiff" # Or "NetCDF", "JPEG2000", "PNG" etc.
 # 5 Create and Start OpenEO Job
 # ------------------------------------------------------------------------------
 job_title <- paste0(study_site_name, "_Sen2_", format(as.Date(temporal_start_date), "%Y%m%d"), "_Rjob")
-job_description <- paste0("Getting Sentinel-2 L2A data for ", study_site_name, " on ", temporal_start_date, " using '", extent_shp_filename, "' boundary.")
+job_description <- paste0("Getting Sentinel-2 L2A data for ", study_site_name, " on ", temporal_start_date, " using '", boundary_shp_filename, "' boundary.")
 
 message(paste0("Creating OpenEO job: '", job_title, "'"))
 job <- tryCatch({
