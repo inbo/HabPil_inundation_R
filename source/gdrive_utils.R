@@ -60,6 +60,47 @@ authenticate_gdrive <- function() {
   return(auth_success)
 }
 
+
+#' Force Download All Files from a Google Drive Folder
+#'
+#' Downloads every file from a specified Google Drive folder to a local directory,
+#' overwriting any existing local files by default. This ensures the local
+#' directory is an exact, up-to-date copy of the remote folder's contents.
+#'
+#' @param gdrive_folder_id The ID of the Google Drive folder.
+#' @param local_path The path to the local directory where files will be saved.
+#' @return Invisibly returns TRUE on success.
+force_download_gdrive_folder <- function(gdrive_folder_id, local_path) {
+  # Ensure the local directory exists
+  if (!dir.exists(local_path)) {
+    message("Creating local cache directory: ", local_path)
+    dir.create(local_path, recursive = TRUE)
+  }
+  
+  # Get a list of all files in the Google Drive folder
+  message("Listing all files in Google Drive folder...")
+  gdrive_files <- googledrive::drive_ls(googledrive::as_id(gdrive_folder_id))
+  
+  if (nrow(gdrive_files) == 0) {
+    warning("No files found in the specified Google Drive folder.")
+    return(invisible(FALSE))
+  }
+  
+  message(paste("Downloading", nrow(gdrive_files), "file(s) to local cache (overwriting existing)..."))
+  
+  # Download each file, overwriting by default
+  for (i in 1:nrow(gdrive_files)) {
+    file <- gdrive_files[i, ]
+    target_path <- file.path(local_path, file$name)
+    message(paste("-> Downloading:", file$name))
+    googledrive::drive_download(file, path = target_path, overwrite = TRUE)
+  }
+  
+  message("All remote files have been downloaded.")
+  invisible(TRUE)
+}
+
+
 # function to download google drive files for shapefiles (multiple files needed)
 download_shapefile_components <- function(gdrive_folder_id, target_shp_filename, base_local_cache_dir, local_target_subfolder) {
   message("\nProcessing dataset for target: ", target_shp_filename, " from GDrive folder ID: ", gdrive_folder_id)
