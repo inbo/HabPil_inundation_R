@@ -1,202 +1,167 @@
-# 1. --- Setup ----
-# Ensure these packages are installed: install.packages(c("terra"))
-message("Loading required R packages...")
-if (!requireNamespace("terra", quietly = TRUE)) {
-  stop("Package 'terra' is required but not installed. Please install it.")
-}
+# ==============================================================================
+# Rasterize Labeled Polygons to Create Fraction Rasters
+# ------------------------------------------------------------------------------
+# Purpose:
+# This script converts a clean, labeled vector polygon file (shapefile) into a
+# multi-layer raster. Each layer in the output raster represents the fractional
+# cover of a specific label (e.g., 'inundated') within each pixel. The grid of
+# the output raster is matched exactly to a corresponding Sentinel-2 image.
+# ==============================================================================
+
+# Load Required Libraries
+# ==============================================================================
 library(terra)
+library(sf)
+library(dplyr)
+library(googledrive)
 
-message("Setup complete.")
 
-# --- 2. Source Utility and Configuration Files ---
-message("Sourcing utility and configuration files...")
+# ==============================================================================
+# 0️⃣ Configuration and Setup
+# ==============================================================================
 
-gdrive_utils_path <- "source/gdrive_utils.R" 
-spatial_utils_path <- "source/spatial_processing_utils.R" 
-config_path <- "source/config.R"          
+# --- Load Custom Utility Functions ---
+source("source/spatial_processing_utils.R")
+source("source/gdrive_utils.R")
 
-source_if_exists <- function(file_path, file_description) {
-  if (!file.exists(file_path)) {
-    stop(paste(file_description, "not found at:", normalizePath(file_path, mustWork = FALSE),
-               ". Please check the path and ensure the file exists relative to your working directory: ", getwd()))
-  }
-  message("Sourcing ", file_description, " from: ", normalizePath(file_path))
-  # Source into the global environment (or the calling environment) so functions are directly available
-  source(file_path, local = FALSE, chdir = TRUE) 
-}
+# --- Primary Analysis Parameters ---
+# Select the study site and year to be processed.
+study_site_name <- "Webbekomsbroek"
+# study_site_name <- "Webbekomsbroek2"
+# study_site_name <- "Schulensmeer"
+# study_site_name <- "Kloosterbeemden"
 
-# Source utility and config files
-source_if_exists(gdrive_utils_path, "Google Drive utilities (gdrive_utils.R)")
-source_if_exists(config_path, "Configuration settings (config.R)") # Loads variables like study_site_name
-source_if_exists(spatial_utils_path, "Spatial processing utilities (spatial_processing_utils.R)")
-
-# Path to the saved multi-layer fractional coverage raster
-fractions_raster_filename <- paste0(study_site_name, "_", study_year, "_fractions.tif")
-fractions_raster_path <- file.path(output_root_dir, 
-                                   "fraction rastes", # Note: check if this should be "fraction rasters"
-                                   study_site_name, 
-                                   study_year, 
-                                   fractions_raster_filename)
-message(paste("Expected path for fractions raster:", fractions_raster_path))
-
-# --- Path to the ORIGINAL, FULL Sentinel-2 Raster ---
-original_s2_data_subfolder <- "Sen2" # Example: as in your initial script
-original_s2_filename <- paste0("Sen2_", study_site_name, "_", study_year, ".tif") # Example: as in your initial script
-
-original_s2_raster_path <- file.path(data_root_dir,
-                                     original_s2_data_subfolder,
-                                     study_site_name,
-                                     study_year,
-                                     original_s2_filename)
-message(paste("Expected path for ORIGINAL full S2 raster:", original_s2_raster_path))
-
-# CSV output parameters (optional, for saving the final data frame)
-save_combined_df <- TRUE # Set to FALSE if you don't want to save the CSV
-output_df_filename <- paste0(study_site_name, "_", study_year, "_pixel_data_S2_and_fractions.csv")
-output_csv_directory <- dirname(fractions_raster_path)
-output_df_full_path <- file.path(output_csv_directory, output_df_filename)
-
-message("Configuration loaded.")
-
-# 3. --- Load Input Rasters ---
-message("Loading input rasters...")
-
-if (!file.exists(fractions_raster_path)) {
-  stop(paste("ERROR: Fractions raster file not found at:", fractions_raster_path,
-             "\nPlease check the path and ensure the file was saved correctly from the previous script."))
-}
-fractions_raster <- terra::rast(fractions_raster_path)
-message("Fractions raster loaded successfully.")
-print(fractions_raster)
-
-if (!file.exists(original_s2_raster_path)) {
-  stop(paste("ERROR: Original full Sentinel-2 raster file not found at:", original_s2_raster_path,
-             "\nPlease provide the correct path to the complete S2 scene."))
-}
-original_s2_raster_all_bands <- terra::rast(original_s2_raster_path)
-message("Original full Sentinel-2 raster loaded successfully.")
-print(original_s2_raster)
-
-message("Input rasters loaded.")
-
-# --- Filter Sentinel-2 bands to keep only those starting with "B" ---
-message("INFO: Filtering Sentinel-2 raster to keep only bands starting with 'B'.")
-s2_all_band_names <- names(original_s2_raster_all_bands)
-bands_to_keep_indices <- startsWith(s2_all_band_names, "B")
-
-if (sum(bands_to_keep_indices) == 0) {
-  message("WARNING: No bands starting with 'B' found in the original Sentinel-2 raster. ",
-          "Proceeding with ALL bands for S2 data extraction, or check raster band names if 'B' bands are expected.")
-  # Fallback: use the raster with all bands if no "B" bands are found.
-  # If "B" bands are absolutely essential, you might want to 'stop()' here instead.
-  original_s2_raster <- original_s2_raster_all_bands 
-} else {
-  selected_s2_band_names <- s2_all_band_names[bands_to_keep_indices]
-  original_s2_raster <- terra::subset(original_s2_raster_all_bands, selected_s2_band_names)
-  message(paste("INFO: Kept the following Sentinel-2 bands:", paste(selected_s2_band_names, collapse=", ")))
-}
-message("INFO: Dimensions of S2 raster to be used for extraction (potentially band-filtered):")
-print(original_s2_raster) # This is now the (potentially filtered) S2 raster we'll use
-
-message("Input rasters (S2 potentially band-filtered) loaded.")
-
-# 4. --- Extract S2 and Fraction Values for Valid Pixels ---
-message("INFO: Starting extraction of fraction values and original Sentinel-2 values.")
-
-# 4.1. Verify geometric compatibility for cell-based extraction
-message("INFO: Verifying geometric compatibility (CRS, Resolution, Origin) between fractions raster and original S2 raster...")
-compatible_crs <- compareGeom(fractions_raster, original_s2_raster, crs = TRUE, res = FALSE, ext = FALSE, rowcol = FALSE, stopOnError = FALSE)
-compatible_res <- all(terra::res(fractions_raster) == terra::res(original_s2_raster))
-# Origin check can be tricky due to floating point; compare with a tolerance
-origin_diff <- abs(terra::origin(fractions_raster) - terra::origin(original_s2_raster))
-compatible_origin <- all(origin_diff < (min(terra::res(fractions_raster)) * 1e-3)) # Tolerance relative to pixel size
-
-if (compatible_crs && compatible_res && compatible_origin) {
-  message("INFO: CRS, resolution, and origin are compatible. Cell-based extraction should be reliable.")
-} else {
-  message(paste("WARNING: CRS, resolution, or origin might not be perfectly compatible for direct cell number transfer.",
-                "CRS match:", compatible_crs,
-                "Resolution match:", compatible_res,
-                "Origin match (approx):", compatible_origin,
-                "If issues arise, consider extracting S2 data by coordinates instead of cell numbers."))
-  # Forcing stop if not compatible, as cell numbers would be meaningless otherwise.
-  # You could implement coordinate-based extraction as a fallback here.
-  if (!compatible_crs || !compatible_res || !compatible_origin) {
-    stop("FATAL ERROR: CRS, resolution, or origin are not compatible enough for reliable cell-based extraction between the rasters.")
-  }
-}
-
-# 4.2. Identify valid cell numbers from the fractions_raster
-message("INFO: Identifying valid (non-NA) pixels from the fractions raster...")
-first_layer_fractions <- fractions_raster[[1]]
-first_layer_values_vec <- terra::values(first_layer_fractions, mat = FALSE)
-valid_cells <- which(!is.na(first_layer_values_vec))
-
-if (length(valid_cells) == 0) {
-  stop("ERROR: No valid (non-NA) pixels found in the loaded fractions raster. Cannot extract data.")
-}
-message(paste("INFO: Found", length(valid_cells), "valid pixels for data extraction."))
-
-# 4.3. Extract fraction values for these valid cells
-message("INFO: Extracting fraction values...")
-fraction_values_matrix <- terra::extract(fractions_raster, valid_cells)
-
-# 4.4. Extract original Sentinel-2 values from the FULL S2 raster for the same cell numbers
-message("INFO: Extracting original Sentinel-2 values from the full S2 raster...")
-# This relies on the cell numbers from fractions_raster being valid and corresponding
-# to the same locations in original_s2_raster due to shared grid properties (CRS, res, origin).
-s2_values_matrix <- terra::extract(original_s2_raster, valid_cells)
-
-# Ensure S2 column names are descriptive
-s2_original_band_names <- names(original_s2_raster)
-if(is.null(s2_original_band_names) || length(s2_original_band_names) != ncol(s2_values_matrix) || any(s2_original_band_names == "")) {
-  s2_col_names <- paste0("S2_Band", seq_len(ncol(s2_values_matrix)))
-} else {
-  s2_col_names <- paste0("S2_Original_", s2_original_band_names) # Added "Original" to distinguish
-}
-colnames(s2_values_matrix) <- s2_col_names
-
-# 4.5. Get coordinates for these valid cells (from fractions_raster grid)
-message("INFO: Extracting coordinates (x, y) for valid pixels...")
-coordinates_matrix <- terra::xyFromCell(fractions_raster, valid_cells)
-colnames(coordinates_matrix) <- c("x_coord", "y_coord")
-
-# 4.6. Combine all extracted data into a single data frame
-message("INFO: Combining extracted coordinates, S2 values, and fraction values...")
-combined_pixel_data_df <- cbind(
-  as.data.frame(coordinates_matrix),
-  as.data.frame(s2_values_matrix),
-  as.data.frame(fraction_values_matrix)
+# --- Site-Specific Mappings 🔖 ---
+# This is where you define the site_abbreviations list.
+# It acts as a lookup table to get the short code for a given study site name.
+site_abbreviations <- list(
+  "Webbekomsbroek" = "WB",
+  "Schulensmeer" = "SM",
+  "Kloosterbeemden" = "KB",
+  "Webbekomsbroek2" = "WB" # The special case also uses "WB"
 )
 
-message("INFO: Data extraction and combination complete.")
-message(paste("INFO: Resulting data frame has", nrow(combined_pixel_data_df), "rows (pixels) and", ncol(combined_pixel_data_df), "columns."))
+# target_year <- 2020
+#target_year <- 2021
+ target_year <- 2023
+# target_year <- 2024
 
-message("INFO: Displaying the first few rows of the combined data frame:")
-print(head(combined_pixel_data_df))
+# --- Google Drive IDs ---
+# The master folder containing all clean, labeled polygon shapefiles.
+gdrive_ids <- list(
+  labeled_shapefiles_folder = "1ylQ5_tsA2LPz0AOa7BOg5-EydADjS7GL" # Same folder as your other shapefiles
+)
 
-# 4.7. Optional: Save the combined data frame
-if (save_combined_df) {
-  if (!exists("output_csv_directory")) {
-    if (exists("fractions_raster_path") && !is.null(fractions_raster_path)) {
-      output_csv_directory <- dirname(fractions_raster_path)
-    } else {
-      output_csv_directory <- file.path(output_root_dir,
-                                        "pixel_data_tables",
-                                        study_site_name,
-                                        study_year)
-    }
-  }
-  if (!dir.exists(output_csv_directory)) {
-    dir.create(output_csv_directory, recursive = TRUE)
-    message(paste("INFO: Created directory for CSV output:", output_csv_directory))
-  }
-  output_df_full_path <- file.path(output_csv_directory, output_df_filename)
-  
-  tryCatch({
-    write.csv(combined_pixel_data_df, output_df_full_path, row.names = FALSE)
-    message(paste("INFO: Combined pixel data frame saved to:", output_df_full_path))
-  }, error = function(e) {
-    warning(paste("WARNING: Could not save combined data frame as CSV:", e$message))
-  })
+# --- Local Directory Paths ---
+data_root_dir <- "data"
+output_root_dir <- "output"
+
+# Cache for downloaded shapefiles.
+local_paths <- list(
+  labeled_shapefiles_cache = "data/final_labels"
+)
+
+# --- Input File Paths (Constructed) ---
+# Path to the Sentinel-2 image which will serve as the template grid.
+s2_template_raster_path <- file.path(
+  data_root_dir, "Sen2",
+  paste0(study_site_name, "_Sen2_", target_year, ".tif")
+)
+
+# --- Output File Path (Constructed) ---
+# Path where the final fractions raster will be saved.
+fractions_raster_output_path <- file.path(
+  output_root_dir, "fraction_rasters", study_site_name, target_year,
+  paste0(study_site_name, "_", target_year, "_fractions.tif")
+)
+
+
+
+# ==============================================================================
+# 1️⃣ Authenticate with Google Drive
+# ==============================================================================
+message("Authenticating with Google Drive...")
+drive_auth()
+message("Authentication successful.")
+
+
+# ==============================================================================
+# 2️⃣ Acquire and Load Input Data
+# ==============================================================================
+message("\n--- Acquiring and loading input data for '", study_site_name, "' (", target_year, ") ---")
+
+# --- 2.1 Download all labeled polygon shapefiles ------------------------------
+message("Downloading all labeled polygon shapefiles...")
+force_download_gdrive_folder(
+  gdrive_folder_id = gdrive_ids$labeled_shapefiles_folder,
+  local_path = local_paths$labeled_shapefiles_cache
+)
+
+# --- 2.2 Load the specific shapefile for the study site -----------------------
+# Get the site's abbreviation (e.g., "WB", "SM", "KB")
+study_site_abbreviation <- site_abbreviations[[study_site_name]]
+
+# Construct the filename with a special check for 'Webbekomsbroek2'
+if (study_site_name == "Webbekomsbroek2") {
+  # Handle the specific exception for Webbekomsbroek2
+  labeled_shp_filename <- "Labels_WB_2023_2.shp"
+  message("NOTE: Using special filename convention for 'Webbekomsbroek2'.")
+} else {
+  # Use the standard naming convention for all other sites
+  labeled_shp_filename <- paste0("Labels_", study_site_abbreviation, "_", target_year, ".shp")
 }
+
+labeled_shp_path <- file.path(local_paths$labeled_shapefiles_cache, labeled_shp_filename)
+
+if (!file.exists(labeled_shp_path)) {
+  stop("FATAL: Labeled shapefile not found at: \n", labeled_shp_path)
+}
+labeled_polygons <- st_read(labeled_shp_path, quiet = TRUE)
+message("Labeled polygons loaded successfully from: ", labeled_shp_filename)
+if (!"Label" %in% names(labeled_polygons)) stop("FATAL: Shapefile must contain a 'Label' column.")
+
+# --- 2.3 Load the Sentinel-2 raster to use as a template ----------------------
+if (!file.exists(s2_template_raster_path)) {
+  stop("FATAL: Sentinel-2 template raster not found at: \n", s2_template_raster_path)
+}
+s2_template_raster <- rast(s2_template_raster_path)
+message("Sentinel-2 template raster loaded successfully.")
+
+# ==============================================================================
+# 3️⃣ Create the Fractional Cover Raster
+# ==============================================================================
+message("\n--- Creating the fractional cover raster ---")
+
+# Ensure CRS match between polygons and raster template
+if (st_crs(labeled_polygons) != st_crs(s2_template_raster)) {
+  message("CRS mismatch detected. Reprojecting polygons to match raster template...")
+  labeled_polygons <- st_transform(labeled_polygons, st_crs(s2_template_raster))
+}
+
+# Call the main utility function to perform the rasterization
+fractions_raster <- create_fraction_raster(labeled_polygons, s2_template_raster)
+
+print(fractions_raster)
+
+
+# ==============================================================================
+# 4️⃣ Save the Output Raster
+# ==============================================================================
+message("\n--- Saving the output fractional raster ---")
+
+# Create the output directory if it doesn't exist
+output_dir <- dirname(fractions_raster_output_path)
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+# Save the final raster to a GeoTIFF file
+terra::writeRaster(
+  fractions_raster,
+  fractions_raster_output_path,
+  overwrite = TRUE,
+  gdal = c("COMPRESS=LZW") # Use compression to save space
+)
+
+message(paste("SUCCESS: Fractional raster saved to:\n", fractions_raster_output_path))
+
+
+
