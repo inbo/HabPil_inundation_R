@@ -172,3 +172,106 @@ save_filtered_geopackage <- function(data, letter, site_name, local_dir, gdrive_
   }
   invisible(TRUE)
 }
+
+
+#' Calculate common spectral indices from a data frame
+#'
+#' @param df A data frame containing scaled Sentinel-2 bands (e.g., 'B03_scaled').
+#' @return The data frame with added columns for each spectral index.
+calculate_spectral_indices <- function(df) {
+  # Helper function for STR, expects scaled values
+  swir_to_str <- function(swir) {
+    ifelse(is.na(swir) | swir <= 0, NA_real_, ((1 - swir)^2) / (2 * swir))
+  }
+  
+  df %>%
+    mutate(
+      ndvi = (.data[["B8A_scaled"]] - .data[["B04_scaled"]]) / (.data[["B8A_scaled"]] + .data[["B04_scaled"]]),
+      ndwi_mf = (.data[["B03_scaled"]] - .data[["B8A_scaled"]]) / (.data[["B03_scaled"]] + .data[["B8A_scaled"]]),
+      mndwi11 = (.data[["B03_scaled"]] - .data[["B11_scaled"]]) / (.data[["B03_scaled"]] + .data[["B11_scaled"]]),
+      mndwi12 = (.data[["B03_scaled"]] - .data[["B12_scaled"]]) / (.data[["B03_scaled"]] + .data[["B12_scaled"]]),
+      ndmi_gao11 = (.data[["B8A_scaled"]] - .data[["B11_scaled"]]) / (.data[["B8A_scaled"]] + .data[["B11_scaled"]]),
+      str1 = swir_to_str(.data[["B11_scaled"]]),
+      str2 = swir_to_str(.data[["B12_scaled"]])
+    )
+}
+
+#' Classify pixels based on land cover fraction purity
+#'
+#' @param df A data frame containing fractional cover columns.
+#' @param fraction_colnames A character vector of the column names representing fractions.
+#' @return The data frame with two new, correctly ordered factor columns: 
+#'   'dominant_label' and 'mixture_category'.
+classify_pixel_mixture <- function(df, fraction_colnames) {
+  pixel_fractions <- df[, fraction_colnames, drop = FALSE]
+  
+  # Get the name of the dominant fraction for each pixel (row)
+  dominant_label_character <- fraction_colnames[max.col(pixel_fractions, ties.method = "first")]
+  
+  # Convert to a factor, using the EXACT order from the fraction raster layers.
+  # This prevents alphabetical re-sorting and fixes the label shift.
+  df$dominant_label <- factor(dominant_label_character, levels = fraction_colnames)
+  
+  # Get the value of the dominant fraction
+  max_fraction <- do.call(pmax, c(pixel_fractions, na.rm = TRUE))
+  
+  # Classify the pixel based on purity
+  mixture_category_character <- case_when(
+    max_fraction >= 0.9 ~ "pure",
+    max_fraction > 0.6  ~ "mixed",
+    TRUE                ~ "very_mixed"
+  )
+  
+  # **FIX 2**: Convert mixture category to a factor with a defined order.
+  # This ensures plots and tables are always ordered logically.
+  df$mixture_category <- factor(mixture_category_character, levels = c("pure", "mixed", "very_mixed"))
+  
+  return(df)
+}
+
+#' Create Raster Layers from Data Frame Columns
+#'
+#' Converts specified columns of a data frame back into raster layers using a
+#' template raster for the correct geometry. Handles both numeric and categorical data.
+#'
+#' @param df The data frame containing pixel data and coordinates (x_coord, y_coord).
+#' @param columns_to_rasterize A character vector of column names to convert to raster layers.
+#' @param template_raster A `SpatRaster` to provide the grid geometry (CRS, extent, resolution).
+#' @return A multi-layer `SpatRaster` object containing the new layers.
+rasterize_attributes <- function(df, columns_to_rasterize, template_raster) {
+  # Get the cell indices from the coordinates once, as it's the same for all layers.
+  cells <- terra::cellFromXY(template_raster, df[, c("x_coord", "y_coord")])
+  
+  new_layers <- list()
+  
+  for (col_name in columns_to_rasterize) {
+    message(paste(" -> Rasterizing attribute:", col_name))
+    
+    # Create an empty raster layer with the correct geometry.
+    new_layer <- terra::rast(template_raster, nlyr = 1)
+    names(new_layer) <- col_name
+    
+    # Get the values for the current column.
+    values_to_rasterize <- df[[col_name]]
+    
+    # Check if the column is categorical (character or factor).
+    if (is.character(values_to_rasterize) || is.factor(values_to_rasterize)) {
+      # For categorical data, convert to a factor to get numeric levels.
+      factor_values <- as.factor(values_to_rasterize)
+      
+      # Assign the numeric factor levels to the raster cells.
+      new_layer[cells] <- as.numeric(factor_values)
+      
+      # Attach the text labels to the raster layer for GIS software.
+      levels(new_layer) <- levels(factor_values)
+      
+    } else {
+      # For numeric data (like NDVI), assign the values directly.
+      new_layer[cells] <- values_to_rasterize
+    }
+    
+    new_layers[[col_name]] <- new_layer
+  }
+  
+  return(terra::rast(new_layers))
+}
