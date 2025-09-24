@@ -1,0 +1,167 @@
+# ==============================================================================
+# Rasterize Labeled Polygons to Create Fraction Rasters
+# ------------------------------------------------------------------------------
+# Purpose:
+# This script converts a clean, labeled vector polygon file (shapefile) into a
+# multi-layer raster. Each layer in the output raster represents the fractional
+# cover of a specific label (e.g., 'inundated') within each pixel. The grid of
+# the output raster is matched exactly to a corresponding Sentinel-2 image.
+# ==============================================================================
+
+# Load Required Libraries
+# ==============================================================================
+library(terra)
+library(sf)
+library(dplyr)
+library(googledrive)
+
+
+# ==============================================================================
+# 0️⃣ Configuration and Setup
+# ==============================================================================
+
+# --- Load Custom Utility Functions ---
+source("source/spatial_processing_utils.R")
+source("source/gdrive_utils.R")
+
+# --- Primary Analysis Parameters ---
+# Select the study site and year to be processed.
+study_site_name <- "Webbekomsbroek"
+# study_site_name <- "Webbekomsbroek2"
+# study_site_name <- "Schulensmeer"
+# study_site_name <- "Kloosterbeemden"
+
+# --- Site-Specific Mappings 🔖 ---
+# This is where you define the site_abbreviations list.
+# It acts as a lookup table to get the short code for a given study site name.
+site_abbreviations <- list(
+  "Webbekomsbroek" = "WB",
+  "Schulensmeer" = "SM",
+  "Kloosterbeemden" = "KB",
+  "Webbekomsbroek2" = "WB" # The special case also uses "WB"
+)
+
+# target_year <- 2020
+#target_year <- 2021
+ target_year <- 2023
+# target_year <- 2024
+
+# --- Google Drive IDs ---
+# The master folder containing all clean, labeled polygon shapefiles.
+gdrive_ids <- list(
+  labeled_shapefiles_folder = "1ylQ5_tsA2LPz0AOa7BOg5-EydADjS7GL" # Same folder as your other shapefiles
+)
+
+# --- Local Directory Paths ---
+data_root_dir <- "data"
+output_root_dir <- "output"
+
+# Cache for downloaded shapefiles.
+local_paths <- list(
+  labeled_shapefiles_cache = "data/final_labels"
+)
+
+# --- Input File Paths (Constructed) ---
+# Path to the Sentinel-2 image which will serve as the template grid.
+s2_template_raster_path <- file.path(
+  data_root_dir, "Sen2",
+  paste0(study_site_name, "_Sen2_", target_year, ".tif")
+)
+
+# --- Output File Path (Constructed) ---
+# Path where the final fractions raster will be saved.
+fractions_raster_output_path <- file.path(
+  output_root_dir, "fraction_rasters", study_site_name, target_year,
+  paste0(study_site_name, "_", target_year, "_fractions.tif")
+)
+
+
+
+# ==============================================================================
+# 1️⃣ Authenticate with Google Drive
+# ==============================================================================
+message("Authenticating with Google Drive...")
+drive_auth()
+message("Authentication successful.")
+
+
+# ==============================================================================
+# 2️⃣ Acquire and Load Input Data
+# ==============================================================================
+message("\n--- Acquiring and loading input data for '", study_site_name, "' (", target_year, ") ---")
+
+# --- 2.1 Download all labeled polygon shapefiles ------------------------------
+message("Downloading all labeled polygon shapefiles...")
+force_download_gdrive_folder(
+  gdrive_folder_id = gdrive_ids$labeled_shapefiles_folder,
+  local_path = local_paths$labeled_shapefiles_cache
+)
+
+# --- 2.2 Load the specific shapefile for the study site -----------------------
+# Get the site's abbreviation (e.g., "WB", "SM", "KB")
+study_site_abbreviation <- site_abbreviations[[study_site_name]]
+
+# Construct the filename with a special check for 'Webbekomsbroek2'
+if (study_site_name == "Webbekomsbroek2") {
+  # Handle the specific exception for Webbekomsbroek2
+  labeled_shp_filename <- "Labels_WB_2023_2.shp"
+  message("NOTE: Using special filename convention for 'Webbekomsbroek2'.")
+} else {
+  # Use the standard naming convention for all other sites
+  labeled_shp_filename <- paste0("Labels_", study_site_abbreviation, "_", target_year, ".shp")
+}
+
+labeled_shp_path <- file.path(local_paths$labeled_shapefiles_cache, labeled_shp_filename)
+
+if (!file.exists(labeled_shp_path)) {
+  stop("FATAL: Labeled shapefile not found at: \n", labeled_shp_path)
+}
+labeled_polygons <- st_read(labeled_shp_path, quiet = TRUE)
+message("Labeled polygons loaded successfully from: ", labeled_shp_filename)
+if (!"Label" %in% names(labeled_polygons)) stop("FATAL: Shapefile must contain a 'Label' column.")
+
+# --- 2.3 Load the Sentinel-2 raster to use as a template ----------------------
+if (!file.exists(s2_template_raster_path)) {
+  stop("FATAL: Sentinel-2 template raster not found at: \n", s2_template_raster_path)
+}
+s2_template_raster <- rast(s2_template_raster_path)
+message("Sentinel-2 template raster loaded successfully.")
+
+# ==============================================================================
+# 3️⃣ Create the Fractional Cover Raster
+# ==============================================================================
+message("\n--- Creating the fractional cover raster ---")
+
+# Ensure CRS match between polygons and raster template
+if (st_crs(labeled_polygons) != st_crs(s2_template_raster)) {
+  message("CRS mismatch detected. Reprojecting polygons to match raster template...")
+  labeled_polygons <- st_transform(labeled_polygons, st_crs(s2_template_raster))
+}
+
+# Call the main utility function to perform the rasterization
+fractions_raster <- create_fraction_raster(labeled_polygons, s2_template_raster)
+
+print(fractions_raster)
+
+
+# ==============================================================================
+# 4️⃣ Save the Output Raster
+# ==============================================================================
+message("\n--- Saving the output fractional raster ---")
+
+# Create the output directory if it doesn't exist
+output_dir <- dirname(fractions_raster_output_path)
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+# Save the final raster to a GeoTIFF file
+terra::writeRaster(
+  fractions_raster,
+  fractions_raster_output_path,
+  overwrite = TRUE,
+  gdal = c("COMPRESS=LZW") # Use compression to save space
+)
+
+message(paste("SUCCESS: Fractional raster saved to:\n", fractions_raster_output_path))
+
+
+
