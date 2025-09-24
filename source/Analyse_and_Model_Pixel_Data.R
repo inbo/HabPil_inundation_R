@@ -58,7 +58,11 @@ main_label_colors <- c(
 
 # Define the desired order of labels on plot axes.
 manual_label_order <- c('Inundated', 'Not inundated', 'Other', 'Reed', 'Uncertain')
+manual_label_order <- rev(manual_label_order) # Reverse the order here
 
+# Define the order for mixture categories
+mixture_category_order <- c("pure", "mixed", "very_mixed") # Order for stacking and legend
+mixture_category_order  <- rev(mixture_category_order ) # Reverse the order here
 
 # ==============================================================================
 # 1️⃣ Load and Prepare Data
@@ -75,6 +79,12 @@ message("Successfully loaded ", nrow(pixel_data_df), " pixels.")
 # Standardize column names to lowercase for consistency
 names(pixel_data_df) <- tolower(names(pixel_data_df))
 message("Column names standardized to lowercase.")
+
+# Ensure dominant_label and mixture_category are factors with desired order for plotting
+pixel_data_df$dominant_label <- factor(pixel_data_df$dominant_label, levels = manual_label_order)
+
+# Factor mixture_category with the desired *stacking* order
+pixel_data_df$mixture_category <- factor(pixel_data_df$mixture_category, levels = mixture_category_order)
 
 
 # ==============================================================================
@@ -135,6 +145,87 @@ if (nrow(pure_pixels_df) > 0) {
   message("No 'pure' pixels found to generate boxplots.")
 }
 
+# --- 2.3 Generate Bar Plot: Pixel Counts by Label and Mixture Class (UPDATED FOR STACKED) -----
+message("Generating stacked bar plot for pixel counts by dominant label and mixture category...")
+
+# Helper functions for color adjustment (lighten/darken)
+# ------------------------------------------------------------------------------
+# These convert hex colors to HSV, adjust the 'V' (Value/Brightness) component,
+# and convert back to hex.
+# amount should be between 0 and 1.
+lighten_color <- function(color, amount = 0.3) {
+  if (amount < 0 || amount > 1) stop("Amount must be between 0 and 1.")
+  rgb <- grDevices::col2rgb(color)
+  hsv <- grDevices::rgb2hsv(rgb)
+  hsv["v",] <- pmin(1, hsv["v",] + amount) # Increase V, cap at 1
+  return(grDevices::hsv(hsv["h",], hsv["s",], hsv["v",]))
+}
+
+darken_color <- function(color, amount = 0.3) {
+  if (amount < 0 || amount > 1) stop("Amount must be between 0 and 1.")
+  rgb <- grDevices::col2rgb(color)
+  hsv <- grDevices::rgb2hsv(rgb)
+  hsv["v",] <- pmax(0, hsv["v",] - amount) # Decrease V, cap at 0
+  return(grDevices::hsv(hsv["h",], hsv["s",], hsv["v",]))
+}
+
+
+# Calculate counts for the bar plot
+# We still need purity_category for alpha mapping
+bar_plot_data <- pixel_data_df %>%
+  count(dominant_label, mixture_category, name = "pixel_count") %>%
+  # Ensure all combinations are present, even if count is 0, for consistent plotting
+  complete(dominant_label, mixture_category, fill = list(pixel_count = 0))
+
+# Ensure mixture_category is a factor with the desired order for alpha mapping
+bar_plot_data$mixture_category <- factor(bar_plot_data$mixture_category, levels = mixture_category_order)
+
+bar_plot_counts <- ggplot(bar_plot_data, aes(y = dominant_label, x = pixel_count, fill = dominant_label, alpha = mixture_category)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(
+    name = "Dominant Label", # Legend for main labels
+    values = main_label_colors,
+    breaks = rev(manual_label_order), # Ensure legend order for labels
+    drop = FALSE
+  ) +
+  scale_alpha_manual(
+    name = "Purity Class", # Legend for purity shades
+    # Values should now be in the order "very_mixed", "mixed", "pure"
+    values = c("very_mixed" = 0.3, "mixed" = 0.6, "pure" = 1.0), # Reversed opacity for reversed order
+    breaks = mixture_category_order, # This factor's levels are now "very_mixed", "mixed", "pure"
+    labels = c(
+      "Very Mixed (<60%)",
+      "Mixed (60-90%)",
+      "Pure (>90%)"
+    ),
+    drop = FALSE
+  ) +
+  scale_x_continuous(labels = comma) + # x-axis is now counts
+  labs(
+    title = "Pixel Counts by Dominant Label and Purity Class",
+    subtitle = paste("Site:", study_site_name, "| Year:", target_year),
+    y = "Dominant Label", # y-axis is now labels
+    x = "Number of Pixels"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.y = element_text(angle = 0, hjust = 1), # No rotation for y-axis labels
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "right",
+    legend.box = "vertical", # Stack legends if multiple
+    legend.title = element_text(face = "bold")
+  )
+
+
+print(bar_plot_counts)
+
+# Save the horizontal stacked bar plot
+ggsave(
+  file.path(plot_output_dir, paste0(study_site_name, "_", target_year, "_pixel_counts_horizontal_stacked_bar_plot.png")),
+  plot = bar_plot_counts, width = 12, height = 7, dpi = 300
+)
+message("Horizontal stacked bar plot for pixel counts saved.")
 
 # ==============================================================================
 # 3️⃣ Apply and Evaluate Decision Tree Model
