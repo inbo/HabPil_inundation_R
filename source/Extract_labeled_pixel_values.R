@@ -1,20 +1,18 @@
 # ==============================================================================
-# Rasterize Labeled Polygons to Create Fraction Rasters
+# Pixel-Level Analysis of Sentinel-2 and Land Cover Fractions
 # ------------------------------------------------------------------------------
 # Purpose:
-# This script converts a clean, labeled vector polygon file (shapefile) into a
-# multi-layer raster. Each layer in the output raster represents the fractional
-# cover of a specific label (e.g., 'inundated') within each pixel. The grid of
-# the output raster is matched exactly to a corresponding Sentinel-2 image.
+# This script loads Sentinel-2 imagery and pre-calculated land cover fraction
+# data. It aligns these datasets, calculates spectral indices, classifies
+# pixels by land cover purity, and saves a final data table for analysis.
 # ==============================================================================
 
 # Load Required Libraries
 # ==============================================================================
 library(terra)
-library(sf)
 library(dplyr)
-library(googledrive)
-
+library(ggplot2)
+library(tidyr)
 
 # ==============================================================================
 # 0️⃣ Configuration and Setup
@@ -25,143 +23,178 @@ source("source/spatial_processing_utils.R")
 source("source/gdrive_utils.R")
 
 # --- Primary Analysis Parameters ---
-# Select the study site and year to be processed.
 study_site_name <- "Webbekomsbroek"
-# study_site_name <- "Webbekomsbroek2"
 # study_site_name <- "Schulensmeer"
 # study_site_name <- "Kloosterbeemden"
+# study_site_name <- "Webbekomsbroek2"
 
-# --- Site-Specific Mappings 🔖 ---
-# This is where you define the site_abbreviations list.
-# It acts as a lookup table to get the short code for a given study site name.
-site_abbreviations <- list(
-  "Webbekomsbroek" = "WB",
-  "Schulensmeer" = "SM",
-  "Kloosterbeemden" = "KB",
-  "Webbekomsbroek2" = "WB" # The special case also uses "WB"
-)
-
+# Select the single target year for this analysis run.
+# target_year <- 2021 # Currently active year
 # target_year <- 2020
-#target_year <- 2021
  target_year <- 2023
 # target_year <- 2024
 
-# --- Google Drive IDs ---
-# The master folder containing all clean, labeled polygon shapefiles.
-gdrive_ids <- list(
-  labeled_shapefiles_folder = "1ylQ5_tsA2LPz0AOa7BOg5-EydADjS7GL" # Same folder as your other shapefiles
-)
-
-# --- Local Directory Paths ---
+# --- Root Directories ---
 data_root_dir <- "data"
 output_root_dir <- "output"
 
-# Cache for downloaded shapefiles.
-local_paths <- list(
-  labeled_shapefiles_cache = "data/final_labels"
-)
-
-# --- Input File Paths (Constructed) ---
-# Path to the Sentinel-2 image which will serve as the template grid.
-s2_template_raster_path <- file.path(
-  data_root_dir, "Sen2",
-  paste0(study_site_name, "_Sen2_", target_year, ".tif")
-)
-
-# --- Output File Path (Constructed) ---
-# Path where the final fractions raster will be saved.
-fractions_raster_output_path <- file.path(
+# --- Input File Paths ---
+# Path to the fractional cover raster
+fractions_raster_path <- file.path(
   output_root_dir, "fraction_rasters", study_site_name, target_year,
   paste0(study_site_name, "_", target_year, "_fractions.tif")
 )
 
-
-
-# ==============================================================================
-# 1️⃣ Authenticate with Google Drive
-# ==============================================================================
-message("Authenticating with Google Drive...")
-drive_auth()
-message("Authentication successful.")
-
-
-# ==============================================================================
-# 2️⃣ Acquire and Load Input Data
-# ==============================================================================
-message("\n--- Acquiring and loading input data for '", study_site_name, "' (", target_year, ") ---")
-
-# --- 2.1 Download all labeled polygon shapefiles ------------------------------
-message("Downloading all labeled polygon shapefiles...")
-force_download_gdrive_folder(
-  gdrive_folder_id = gdrive_ids$labeled_shapefiles_folder,
-  local_path = local_paths$labeled_shapefiles_cache
+# Path to the original Sentinel-2 raster
+original_s2_raster_path <- file.path(
+  data_root_dir, "Sen2",
+  paste0(study_site_name, "_Sen2_", target_year, ".tif")
 )
 
-# --- 2.2 Load the specific shapefile for the study site -----------------------
-# Get the site's abbreviation (e.g., "WB", "SM", "KB")
-study_site_abbreviation <- site_abbreviations[[study_site_name]]
+# --- Output File Paths ---
+  # Path for the intermediate combined raster
+  combined_raster_path <- file.path(
+    output_root_dir, "combined_rasters", study_site_name, target_year,
+    paste0(study_site_name, "_", target_year, "_S2_and_fractions_aligned.tif")
+  )
 
-# Construct the filename with a special check for 'Webbekomsbroek2'
-if (study_site_name == "Webbekomsbroek2") {
-  # Handle the specific exception for Webbekomsbroek2
-  labeled_shp_filename <- "Labels_WB_2023_2.shp"
-  message("NOTE: Using special filename convention for 'Webbekomsbroek2'.")
+# Path for the final CSV data table
+final_csv_path <- file.path(
+  output_root_dir, "pixel_data_tables", study_site_name, target_year,
+  paste0(study_site_name, "_", target_year, "_final_pixel_attributes.csv")
+)
+
+# Path for the final, all-inclusive raster with derived attributes
+final_attributes_raster_path <- file.path( # <-- ADD THIS DEFINITION
+  output_root_dir, "final_rasters", study_site_name, target_year,
+  paste0(study_site_name, "_", target_year, "_final_attributes_raster.tif")
+)
+
+# ==============================================================================
+# 1️⃣ Load Input Data
+# ==============================================================================
+message("\n--- Loading input data for '", study_site_name, "' (", target_year, ") ---")
+
+if (!file.exists(fractions_raster_path)) stop("FATAL: Fractions raster not found at: \n", fractions_raster_path)
+fractions_raster <- rast(fractions_raster_path)
+message("Fractions raster loaded successfully.")
+
+if (!file.exists(original_s2_raster_path)) stop("FATAL: Sentinel-2 raster not found at: \n", original_s2_raster_path)
+s2_raster_all_bands <- rast(original_s2_raster_path)
+message("Sentinel-2 raster loaded successfully.")
+
+
+# ==============================================================================
+# 2️⃣ Align, Combine, and Save Rasters
+# ==============================================================================
+message("\n--- Aligning and combining rasters ---")
+
+# --- 2.1 Filter Sentinel-2 to spectral bands ----------------------------------
+s2_band_names <- names(s2_raster_all_bands)[grep("^B(\\d{1,2}A?)$", names(s2_raster_all_bands))]
+if (length(s2_band_names) == 0) {
+  warning("No spectral bands (starting with 'B') found. Using all bands.")
+  s2_raster_filtered <- s2_raster_all_bands
 } else {
-  # Use the standard naming convention for all other sites
-  labeled_shp_filename <- paste0("Labels_", study_site_abbreviation, "_", target_year, ".shp")
+  s2_raster_filtered <- subset(s2_raster_all_bands, s2_band_names)
+  message(paste("Filtered Sentinel-2 to", length(s2_band_names), "spectral bands."))
 }
 
-labeled_shp_path <- file.path(local_paths$labeled_shapefiles_cache, labeled_shp_filename)
+# --- 2.2 Align S2 grid to fractions grid --------------------------------------
+# This step ensures both rasters have the exact same geometry.
+message("Aligning Sentinel-2 grid to match fractions raster...")
+s2_raster_aligned <- terra::resample(s2_raster_filtered, fractions_raster, method = "near")
+s2_raster_aligned <- terra::mask(s2_raster_aligned, fractions_raster[[1]]) # Ensure NA patterns match
+message("Alignment complete.")
 
-if (!file.exists(labeled_shp_path)) {
-  stop("FATAL: Labeled shapefile not found at: \n", labeled_shp_path)
-}
-labeled_polygons <- st_read(labeled_shp_path, quiet = TRUE)
-message("Labeled polygons loaded successfully from: ", labeled_shp_filename)
-if (!"Label" %in% names(labeled_polygons)) stop("FATAL: Shapefile must contain a 'Label' column.")
+# --- 2.3 Combine and save for checkpointing -----------------------------------
+message("Combining aligned rasters into a single object...")
+combined_raster <- c(fractions_raster, s2_raster_aligned)
+print(combined_raster)
 
-# --- 2.3 Load the Sentinel-2 raster to use as a template ----------------------
-if (!file.exists(s2_template_raster_path)) {
-  stop("FATAL: Sentinel-2 template raster not found at: \n", s2_template_raster_path)
-}
-s2_template_raster <- rast(s2_template_raster_path)
-message("Sentinel-2 template raster loaded successfully.")
-
-# ==============================================================================
-# 3️⃣ Create the Fractional Cover Raster
-# ==============================================================================
-message("\n--- Creating the fractional cover raster ---")
-
-# Ensure CRS match between polygons and raster template
-if (st_crs(labeled_polygons) != st_crs(s2_template_raster)) {
-  message("CRS mismatch detected. Reprojecting polygons to match raster template...")
-  labeled_polygons <- st_transform(labeled_polygons, st_crs(s2_template_raster))
-}
-
-# Call the main utility function to perform the rasterization
-fractions_raster <- create_fraction_raster(labeled_polygons, s2_template_raster)
-
-print(fractions_raster)
+dir.create(dirname(combined_raster_path), recursive = TRUE, showWarnings = FALSE)
+writeRaster(combined_raster, combined_raster_path, overwrite = TRUE, gdal=c("COMPRESS=LZW"))
+message("Intermediate combined raster saved successfully.")
 
 
 # ==============================================================================
-# 4️⃣ Save the Output Raster
+# 3️⃣ Extract Pixel Data to Data Frame
 # ==============================================================================
-message("\n--- Saving the output fractional raster ---")
+message("\n--- Extracting pixel data to data frame ---")
 
-# Create the output directory if it doesn't exist
-output_dir <- dirname(fractions_raster_output_path)
-if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+# terra::values() is an efficient way to extract all pixel data
+combined_pixel_data_df <- as.data.frame(values(combined_raster, na.rm = TRUE))
+coords <- xyFromCell(combined_raster, which(!is.na(values(combined_raster[[1]]))))
+combined_pixel_data_df <- cbind(as.data.frame(coords), combined_pixel_data_df)
+colnames(coords) <- c("x_coord", "y_coord") 
+combined_pixel_data_df <- cbind(as.data.frame(coords), combined_pixel_data_df)
 
-# Save the final raster to a GeoTIFF file
-terra::writeRaster(
-  fractions_raster,
-  fractions_raster_output_path,
-  overwrite = TRUE,
-  gdal = c("COMPRESS=LZW") # Use compression to save space
+message("Data frame created with ", nrow(combined_pixel_data_df), " pixels and ", ncol(combined_pixel_data_df), " columns.")
+
+
+# ==============================================================================
+# 4️⃣ Calculate Derived Attributes
+# ==============================================================================
+message("\n--- Calculating derived pixel attributes ---")
+
+# --- 4.1 Scale Sentinel-2 bands to reflectance --------------------------------
+s2_raw_band_cols <- names(combined_pixel_data_df)[grep("^B(\\d{1,2}A?)$", names(combined_pixel_data_df))]
+for (col in s2_raw_band_cols) {
+  combined_pixel_data_df[[paste0(col, "_scaled")]] <- combined_pixel_data_df[[col]] / 10000.0
+}
+message("Sentinel-2 bands scaled to reflectance.")
+
+# --- 4.2 Calculate spectral indices -------------------------------------------
+combined_pixel_data_df <- calculate_spectral_indices(combined_pixel_data_df)
+message("Spectral indices calculated.")
+
+# --- 4.3 Assign dominant label and mixture category ---------------------------
+fraction_colnames <- names(fractions_raster)
+combined_pixel_data_df <- classify_pixel_mixture(combined_pixel_data_df, fraction_colnames)
+message("Dominant label and mixture category assigned.")
+
+# ==============================================================================
+# 5️⃣ Integrate Derived Attributes into Final Raster
+# ==============================================================================
+message("\n--- Integrating derived attributes back into a final raster ---")
+
+# Define which new columns you want to add as raster layers
+attributes_to_add <- c(
+  "ndvi", "ndwi_mf", "mndwi11", "mndwi12", "ndmi_gao11", "str1", "str2",
+  "dominant_label", "mixture_category"
 )
 
-message(paste("SUCCESS: Fractional raster saved to:\n", fractions_raster_output_path))
+# Use the utility function to create the new raster layers
+derived_attribute_raster <- rasterize_attributes(
+  df = combined_pixel_data_df,
+  columns_to_rasterize = attributes_to_add,
+  template_raster = combined_raster
+)
+
+# Add the new attribute layers to the existing combined raster
+final_raster_with_attributes <- c(combined_raster, derived_attribute_raster)
+
+message("Final raster with all attributes created successfully.")
+
+print(final_raster_with_attributes)
 
 
+# ==============================================================================
+# 6️⃣ Save Final Outputs
+# ==============================================================================
+message("\n--- Saving final outputs (CSV and Raster) ---")
+
+# --- 6.1 Save the final data table to CSV -------------------------------------
+dir.create(dirname(final_csv_path), recursive = TRUE, showWarnings = FALSE)
+write.csv(combined_pixel_data_df, file = final_csv_path, row.names = FALSE)
+message("SUCCESS: Final data frame saved to:\n", final_csv_path)
+
+# --- 6.2 Save the final, all-inclusive raster to GeoTIFF ----------------------
+dir.create(dirname(final_attributes_raster_path), recursive = TRUE, showWarnings = FALSE)
+writeRaster(
+  final_raster_with_attributes,
+  final_attributes_raster_path,
+  overwrite = TRUE,
+  gdal=c("COMPRESS=LZW")
+)
+message("SUCCESS: Final raster with all attributes saved to:\n", final_attributes_raster_path)
 
