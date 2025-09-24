@@ -30,16 +30,25 @@ Crosstab_Cal_Area_BWK.R
 
 OpenEO_get_Sen2_data_inundation.R
 	Purpose:
-	This R script automates the acquisition of Sentinel-2 L2A satellite imagery for a specific date, study 	site, and year. It leverages the openEO platform to connect to the Copernicus Data Space Ecosystem, 	process data on the 	cloud, and deliver analysis-ready imagery.
+	This R script automates the acquisition of Sentinel-2 L2A satellite imagery for a specific date, 
+	study site, and year. It leverages the openEO platform to connect to the Copernicus Data Space 
+	Ecosystem, process data on the cloud, and deliver analysis-ready imagery.
 
 	Key Features & Analysis Performed:
-	- Parameterized Acquisition: The script is configured to run for different study sites and years by 	adjusting variables in the setup section.
-	- Dynamic Date Lookup: It automatically retrieves the exact Sentinel-2 acquisition date from a centralized CSV lookup table stored on Google Drive, ensuring consistency across analyses.
-	- Automated Boundary Ingestion: Downloads the appropriate study site boundary (Area of Interest) shapefile from a designated Google Drive folder.
-	- Cloud-Based Processing: Connects to the openEO backend, authenticates the user, and defines a data cube to load the Sentinel-2 L2A collection for the specified spatial and temporal extent.
-	- Asynchronous Job Management: Creates, starts, and monitors an openEO batch job to process the data 	remotely without requiring local computational resources for the initial data filtering.
+	- Parameterized Acquisition: The script is configured to run for different study sites and years by
+		adjusting variables in the setup section.
+	- Dynamic Date Lookup: It automatically retrieves the exact Sentinel-2 acquisition date from a 
+		centralized CSV lookup table stored on Google Drive, ensuring consistency across analyses.
+	- Automated Boundary Ingestion: Downloads the appropriate study site boundary (Area of Interest) 
+		shapefile from a designated Google Drive folder.
+	- Cloud-Based Processing: Connects to the openEO backend, authenticates the user, and defines a 
+		data cube to load the Sentinel-2 L2A collection for the specified spatial and temporal extent.
+	- Asynchronous Job Management: Creates, starts, and monitors an openEO batch job to process the data 
+		remotely without requiring local computational resources for the initial data filtering.
 	- Result Handling: Downloads the resulting GeoTIFF file from the completed openEO job to a local directory.
-	- Automated Output Management: Renames the downloaded file to a standardized format (e.g., StudySite_Sen2_Year.tif) and automatically uploads it to a specified results folder on Google Drive.
+	- Automated Output Management: Renames the downloaded file to a standardized format 
+		(e.g., StudySite_Sen2_Year.tif) and automatically uploads it to a specified results folder 
+		on Google Drive.
 	
 	
 Create fractional coverage raster.R
