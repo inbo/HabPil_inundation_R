@@ -136,7 +136,6 @@ Analyze_and_Model_Pixel_Data.R
   
   
 Apply_jussila_model_map.R
-
   	Purpose:
   	This script transitions from tabular analysis to spatial validation. Its primary goal is to apply the 
 	pre-trained Jussila decision tree model to the entire study area's attribute raster, generating a full-coverage 
