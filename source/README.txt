@@ -53,67 +53,117 @@ OpenEO_get_Sen2_data_inundation.R
 	
 Create fractional coverage raster.R
   	Purpose:
-  	This script generates the foundational fractional cover rasters, which are essential inputs for subsequent analyses involving spectral mixture analysis, pixel purity assessment, and the generation of training data for 	machine learning models that interpret mixed pixel compositions.
+  	This script generates the foundational fractional cover rasters, which are essential inputs for 
+	subsequent analyses involving spectral mixture 	analysis, pixel purity assessment, and the generation 
+	of training data for machine learning models that interpret mixed pixel compositions.
   
   	Key Features & Analysis Performed:
-  	- Input Data Acquisition: Downloads clean, labeled polygon shapefiles from Google Drive, caching them locally. It handles site-specific naming conventions for input shapefiles.
-  	- Template Grid Integration: Loads a Sentinel-2 image as a template to define the spatial grid (resolution, extent, Coordinate Reference System) for the output fractional raster, ensuring perfect alignment with satellite 			imagery.
-  	- Fractional Cover Calculation: Utilizes the create_fraction_raster utility function to rasterize the input polygons. For each output raster pixel, it calculates the proportion (fractional cover) of each unique land cover label 		("Label" field in the input shapefile) that falls within that pixel. This results in a multi-band raster where each band corresponds to a distinct label's fractional presence.
-  	- Spatial Alignment: Automatically reprojects input polygons if their CRS does not match the Sentinel-2 template raster, ensuring seamless integration.
-	- Output Management: Saves the resulting fractional cover raster as a GeoTIFF file, organized into a structured output directory (output/fraction_rasters/[study_site_name]/[target_year]).
+  	- Input Data Acquisition: Downloads clean, labeled polygon shapefiles from Google Drive, caching them locally. 
+		It handles site-specific naming conventions for input shapefiles.
+  	- Template Grid Integration: Loads a Sentinel-2 image as a template to define the spatial grid 
+		(resolution, extent, Coordinate Reference System) for the output fractional raster, 
+		ensuring perfect alignment with satellite imagery.
+  	- Fractional Cover Calculation: Utilizes the create_fraction_raster utility function to rasterize 
+		the input polygons. For each output raster pixel, it calculates the proportion (fractional cover) 
+		of each unique land cover label ("Label" field in the input shapefile) that falls within that pixel. 
+		This results in a multi-band raster where each band corresponds to a distinct label's fractional presence.
+  	- Spatial Alignment: Automatically reprojects input polygons if their CRS does not match the Sentinel-2 
+		template raster, ensuring seamless integration.
+	- Output Management: Saves the resulting fractional cover raster as a GeoTIFF file, organized into a structured 
+		output directory (output/fraction_rasters/[study_site_name]/[target_year]).
 
 
 Extract_labeled_pixel_values.R
   	Purpose:
-  	This script is designed to create a structured dataset for machine learning applications by extracting spectral values from Sentinel-2 satellite imagery for pixels that have been previously labeled with ground-truth data. It 	effectively links remote sensing data with land cover classes, producing a clean, analysis-ready table of spectral signatures.
+  	This script is designed to create a structured dataset for machine learning applications 
+	by extracting spectral values from Sentinel-2 satellite imagery for pixels that have been 
+	previously labeled with ground-truth data. 
+	It effectively links remote sensing data with land cover classes, producing a clean, 
+	analysis-ready table of spectral signatures.
 
   	Key Features & Analysis Performed:
-  	- Data Ingestion: Automatically downloads the necessary Sentinel-2 imagery and the corresponding fractional cover rasters from designated Google Drive folders.
-  	- Pixel Purity Filtering: Identifies and selects "pure" pixels by applying a fractional cover threshold. This ensures that the extracted spectral data accurately represents a single, specific land cover class (e.g., only pixels 		with >90% cover of a given class are used).
-  	- Spectral Data Extraction: For each pure pixel identified, the script extracts the corresponding spectral values from all bands of the Sentinel-2 raster.
-  	- Data Aggregation: The extracted pixel values are compiled into a tidy data frame, where each row represents a pure pixel and includes its spectral signatures along with its corresponding land cover label.
-  	- Automated Output Management: The final dataset is saved as a CSV file to a local output directory and is also uploaded to a specified Google Drive folder, making it readily available for training and validating classification 		models.
+  	- Data Ingestion: Automatically downloads the necessary Sentinel-2 imagery and the corresponding 
+		fractional cover rasters from designated Google Drive folders.
+  	- Pixel Purity Filtering: Identifies and selects "pure" pixels by applying a fractional cover 
+		threshold. This ensures that the extracted spectral data accurately represents a single, 
+		specific land cover class (e.g., only pixels with >90% cover of a given class are used).
+  	- Spectral Data Extraction: For each pure pixel identified, the script extracts the corresponding 
+		spectral values from all bands of the Sentinel-2 raster.
+  	- Data Aggregation: The extracted pixel values are compiled into a tidy data frame, where each row 
+		represents a pure pixel and includes its spectral signatures along with its corresponding 
+		land cover label.
+  	- Automated Output Management: The final dataset is saved as a CSV file to a local output directory 
+		and is also uploaded to a specified Google Drive folder, making it readily available for 
+		training and validating classification models.
 
 
 Analyze_and_Model_Pixel_Data.R
   	Purpose:
-  	This script serves as the final analysis and validation step in the workflow. It takes the processed pixel-level data (containing spectral indices and ground-truth labels) and evaluates the performance of a pre-trained 	inundation detection model (Jussila decision tree). The core objective is to quantify the model's accuracy and understand how its performance is influenced by pixel purity (i.e., how mixed the land cover is within a single 	pixel).
+  	This script serves as the final analysis and validation step in the workflow. It takes the processed 
+	pixel-level data (containing spectral indices and ground-truth labels) and evaluates the performance 
+	of a pre-trained inundation detection model (Jussila decision tree). The core objective is to quantify 
+	the model's accuracy and understand how its performance is influenced by pixel purity (i.e., how mixed 
+	the land cover is within a single pixel).
 
   	Key Features & Analysis Performed:
-  	- Data Ingestion: Loads the pre-processed CSV file containing spectral indices, fractional cover information, and dominant land cover labels for each pixel.
+  	- Data Ingestion: Loads the pre-processed CSV file containing spectral indices, fractional cover information, 
+		and dominant land cover labels for each pixel.
 
   	Exploratory Data Visualization:
-  	- Boxplots: Generates boxplots for "pure" pixels (>90% single class coverage) to visualize and compare the spectral signatures of different land cover classes across various indices (NDVI, NDWI, etc.).
-  	- Stacked Bar Plots: Creates a comprehensive stacked bar plot showing the total count of pixels for each dominant label, segmented by purity class ("pure", "mixed", "very_mixed"). This provides a clear overview of the dataset's 		composition.
+  	- Boxplots: Generates boxplots for "pure" pixels (>90% single class coverage) to visualize and compare 
+		the spectral signatures of different land cover classes across various indices (NDVI, NDWI, etc.).
+  	- Stacked Bar Plots: Creates a comprehensive stacked bar plot showing the total count of pixels for 
+		each dominant label, segmented by purity class ("pure", "mixed", "very_mixed"). This provides 
+		a clear overview of the dataset's composition.
 
   	Model Application:
   	- Loads a pre-trained decision tree model (.RData file).
-  	- Applies the model to the pixel data to predict a class (e.g., 'water' or 'dry') for every pixel based on its spectral characteristics.
+  	- Applies the model to the pixel data to predict a class (e.g., 'water' or 'dry') 
+		for every pixel based on its spectral characteristics.
 
   	Quantitative Performance Evaluation:
-  	- Confusion Matrix: Generates a confusion matrix comparing the ground-truth dominant labels against the model's predictions.
- 	- Stratified Metrics Calculation: Calculates key performance metrics (Recall, Precision, and F1-Score) for the 'water' and 'dry' classes. Crucially, these metrics are calculated separately for each pixel purity level ("pure", 		"mixed", and "very_mixed").
-  	- Performance Trend Visualization: Produces a line plot that clearly illustrates how the model's Recall, Precision, and F1-Score change as pixel mixture increases. This is the key output for assessing model robustness.
+  	- Confusion Matrix: Generates a confusion matrix comparing the ground-truth dominant labels against 
+		the model's predictions.
+ 	- Stratified Metrics Calculation: Calculates key performance metrics (Recall, Precision, and F1-Score) 
+		for the 'water' and 'dry' classes. Crucially, these metrics are calculated separately for 
+		each pixel purity level ("pure", "mixed", and "very_mixed").
+  	- Performance Trend Visualization: Produces a line plot that clearly illustrates how the model's 
+		Recall, Precision, and F1-Score change as pixel mixture increases. This is the key output 
+		for assessing model robustness.
 
-  	- Automated Output Management: All generated plots (boxplots, bar plots, performance metrics) are automatically saved as PNG files into a structured output directory, organized by study site and year.
+  	- Automated Output Management: All generated plots (boxplots, bar plots, performance metrics) are 
+		automatically saved as PNG files into a structured output directory, organized by study site and year.
   
   
 Apply_jussila_model_map.R
 
   	Purpose:
-  	This script transitions from tabular analysis to spatial validation. Its primary goal is to apply the pre-trained Jussila decision tree model to the entire study area's attribute raster, generating a full-coverage classified 	inundation map. It then produces a set of detailed, three-panel comparison plots to visually assess the spatial agreement and disagreement between the ground-truth reference labels and the model's predictions.
+  	This script transitions from tabular analysis to spatial validation. Its primary goal is to apply the 
+	pre-trained Jussila decision tree model to the entire study area's attribute raster, generating a full-coverage 
+	classified inundation map. It then produces a set of detailed, three-panel comparison plots to visually assess 
+	the spatial agreement and disagreement between the ground-truth reference labels and the model's predictions.
 
   	Key Features & Analysis Performed:
-  	- Spatial Prediction: Loads the final multi-band attributes raster and the pre-trained decision tree model. It then performs a wall-to-wall classification using terra::predict to create a new raster map where each pixel is 			classified as either 'water' or 'dry'.
-  	- Raster Data Integration: Extracts the necessary layers—the ground-truth dominant_label, the model's classified prediction, and the mixture_category—and converts them from raster format into a unified data frame based on pixel 		coordinates. This prepares the data for advanced visualization with ggplot2.
+  	- Spatial Prediction: Loads the final multi-band attributes raster and the pre-trained decision tree model.
+		It then performs a wall-to-wall classification using terra::predict to create a new raster map where 
+		each pixel is classified as either 'water' or 'dry'.
+  	- Raster Data Integration: Extracts the necessary layers—the ground-truth dominant_label, the model's 
+		classified prediction, and the mixture_category—and converts them from raster format into a unified 
+		data frame based on pixel coordinates. This prepares the data for advanced visualization with ggplot2.
   	- Three-Panel Comparison Plots: Generates a powerful visual diagnostic plot containing three maps side-by-side:
-    	Reference Map: Displays the ground-truth labels.
-    	Classified Map: Shows the output from the Jussila model.
-    	Agreement/Disagreement Map: A detailed view that uses a unique color for each combination of reference vs. predicted class, immediately highlighting correct classifications, false positives (Not inundated classified as water), 		and false negatives (Inundated classified as dry).
+    		Reference Map: Displays the ground-truth labels.
+    		Classified Map: Shows the output from the Jussila model.
+    		Agreement/Disagreement Map: A detailed view that uses a unique color for each combination of reference 
+			vs. predicted class, immediately highlighting correct classifications, false positives (Not inundated 
+			classified as water), and false negatives (Inundated classified as dry).
 
-  	- Purity-Based Visual Filtering: The script generates the three-panel plot twice: once using all pixels in the study area, and a second time using only "pure" pixels (>90% single class coverage). This provides a direct visual 		comparison to assess how model performance and spatial accuracy improve when the complexity of mixed pixels is removed.
+  	- Purity-Based Visual Filtering: The script generates the three-panel plot twice: once using all pixels 
+		in the study area, and a second time using only "pure" pixels (>90% single class coverage). 
+		This provides a direct visual comparison to assess how model performance and spatial accuracy improve 
+		when the complexity of mixed pixels is removed.
 
-  	- Automated Output Management: Saves the final classified inundation map as a compressed GeoTIFF (.tif) and exports the high-resolution comparison plots as PNG files to the project's output directory.
+  	- Automated Output Management: Saves the final classified inundation map as a compressed GeoTIFF (.tif) and 
+		exports the high-resolution comparison plots as PNG files to the project's output directory.
 
 
 This R project has two helper scripts
