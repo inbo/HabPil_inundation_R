@@ -26,8 +26,8 @@ source("source/gdrive_utils.R")
 
 # --- Primary Analysis Parameters ---
 # Select the study site and year to be processed.
-study_site_name <- "Webbekomsbroek"
-# study_site_name <- "Webbekomsbroek2"
+# study_site_name <- "Webbekomsbroek"
+ study_site_name <- "Webbekomsbroek2"
 # study_site_name <- "Schulensmeer"
 # study_site_name <- "Kloosterbeemden"
 
@@ -42,9 +42,9 @@ site_abbreviations <- list(
 )
 
 # target_year <- 2020
-#target_year <- 2021
- target_year <- 2023
-# target_year <- 2024
+# target_year <- 2021
+# target_year <- 2023
+ target_year <- 2024
 
 # --- Google Drive IDs ---
 # The master folder containing all clean, labeled polygon shapefiles.
@@ -103,8 +103,8 @@ study_site_abbreviation <- site_abbreviations[[study_site_name]]
 
 # Construct the filename with a special check for 'Webbekomsbroek2'
 if (study_site_name == "Webbekomsbroek2") {
-  # Handle the specific exception for Webbekomsbroek2
-  labeled_shp_filename <- "Labels_WB_2023_2.shp"
+  # FIX: Dynamically construct the filename using the target year
+  labeled_shp_filename <- paste0("Labels_WB_", target_year, "_2.shp")
   message("NOTE: Using special filename convention for 'Webbekomsbroek2'.")
 } else {
   # Use the standard naming convention for all other sites
@@ -120,7 +120,27 @@ labeled_polygons <- st_read(labeled_shp_path, quiet = TRUE)
 message("Labeled polygons loaded successfully from: ", labeled_shp_filename)
 if (!"Label" %in% names(labeled_polygons)) stop("FATAL: Shapefile must contain a 'Label' column.")
 
-# --- 2.3 Load the Sentinel-2 raster to use as a template ----------------------
+# --- 2.3 Standardize labels to correct inconsistencies ------------------------
+message("Standardizing labels in the 'Label' column...")
+
+# Check if the inconsistent 'Reeds' label exists before attempting to change it
+if ("Reeds" %in% unique(labeled_polygons$Label)) {
+  message("Found inconsistent label 'Reeds'. Standardizing to 'Reed'...")
+  
+  # Use dplyr::mutate to replace all occurrences of 'Reeds' with 'Reed'
+  labeled_polygons <- labeled_polygons %>%
+    mutate(Label = if_else(Label == "Reeds", "Reed", Label))
+  
+  message("Standardization complete.")
+} else {
+  message("No 'Reeds' label found; no changes needed.")
+}
+
+# As a final check, print the unique labels that will be used for rasterization
+message("Final unique labels in the dataset:")
+print(sort(unique(labeled_polygons$Label)))
+
+# --- 2.4 Load the Sentinel-2 raster to use as a template ----------------------
 if (!file.exists(s2_template_raster_path)) {
   stop("FATAL: Sentinel-2 template raster not found at: \n", s2_template_raster_path)
 }

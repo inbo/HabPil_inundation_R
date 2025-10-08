@@ -24,14 +24,14 @@ library(ggnewscale)
 # ==============================================================================
 
 # --- Primary Analysis Parameters ---
-study_site_name <- "Webbekomsbroek"
+# study_site_name <- "Webbekomsbroek"
 # study_site_name <- "Schulensmeer"
 # study_site_name <- "Kloosterbeemden"
-# study_site_name <- "Webbekomsbroek2"
+ study_site_name <- "Webbekomsbroek2"
 
-target_year <- 2023
 # target_year <- 2020
 # target_year <- 2021
+ target_year <- 2023
 # target_year <- 2024
 
 # --- Root Directory ---
@@ -157,13 +157,6 @@ color_map <- data.frame(value = c(1, 2), color = c("#dc5199", "#4cd2de")) # dry,
 coltab(classified_map) <- color_map
 message("Color map applied to the raster.")
 
-# --- Save the classified raster to a GeoTIFF file ---
-dir.create(dirname(classified_map_path), recursive = TRUE, showWarnings = FALSE)
-writeRaster(
-  classified_map, classified_map_path, overwrite = TRUE,
-  wopt = list(gdal = c("COMPRESS=LZW"), datatype = "INT1U")
-)
-message("SUCCESS: Final classified map saved to:\n", classified_map_path)
 
 
 # ==============================================================================
@@ -178,7 +171,7 @@ mixture_category_map <- attributes_raster[["mixture_category"]] # Extract mixtur
 # Manually re-establish categories for reference map (critical for correct interpretation)
 correct_ref_categories <- data.frame(
   value = c(1, 2, 3, 4, 5), # Numeric IDs as seen in QGIS
-  category = c("Inundated", "Other", "Reed", "Uncertain", "Not inundated") # Corresponding text labels
+  category = c("Inundated", "Not inundated", "Other", "Reed", "Uncertain") # Corresponding text labels
 )
 terra::set.cats(reference_map, value = correct_ref_categories)
 
@@ -286,13 +279,13 @@ plot_comparison_maps <- function(data_to_plot, title_suffix, filename_suffix) {
     scale_fill_manual(name = "Reference Label", values = reference_colors, na.value = "white", drop = FALSE) +
     new_scale_fill() +
     geom_raster(data = . %>% filter(map_type == "Classified"), aes(fill = label)) +
-    scale_fill_manual(name = "Classified Label", values = classified_colors, na.value = "white", drop = FALSE) +
+    scale_fill_manual(name = "Jussila Model", values = classified_colors, na.value = "white", drop = FALSE) +
     new_scale_fill() +
     geom_raster(data = . %>% filter(map_type == "Combination"), aes(fill = label)) +
     scale_fill_manual(name = "Agreement/Disagreement", values = current_combination_colors, na.value = "transparent", drop = FALSE) +
     facet_wrap(~ map_type) +
     labs(
-      title = paste0("Comparison of Reference Labels vs. Classification Jussila Model (", title_suffix, ")"),
+      title = paste0("Reference vs. Jussila Model Classification (", title_suffix, ")"),
       subtitle = paste("Site:", study_site_name, "| Year:", target_year)
     ) +
     coord_equal() +
@@ -338,4 +331,79 @@ plot_comparison_maps(
   title_suffix = "Pure Pixels Only", # Updated title for clarity
   filename_suffix = "pure_pixels_comparison_map_jussila_model"
 )
+
+# ==============================================================================
+# 7️⃣ Create and Save Separate Categorical Rasters
+# ==============================================================================
+message("\n--- Creating and saving separate categorical rasters for each map type ---")
+
+dir.create(dirname(classified_map_path), recursive = TRUE, showWarnings = FALSE)
+
+# --- Helper function to create and save a single categorical raster ---
+create_and_save_categorical_raster <- function(data_df, column_name, base_path, template_raster) {
+  
+  message(paste0("\nProcessing '", column_name, "' layer..."))
+  
+  # 1. Create a consistent numeric mapping for the labels in the specified column
+  mapping_df <- data_df %>%
+    dplyr::filter(!is.na(.data[[column_name]])) %>%
+    dplyr::distinct(category = .data[[column_name]]) %>%
+    dplyr::arrange(category) %>%
+    dplyr::mutate(value = 1:n()) %>%
+    # FIX: Reorder columns to (value, category) as required by terra
+    dplyr::select(value, category)
+  
+  message("Created a mapping for ", nrow(mapping_df), " unique classes.")
+  
+  # Print the mapping to the console
+  message(paste0("Mapping for '", column_name, "':"))
+  print(mapping_df)
+  
+  # 2. Add numeric IDs to the data frame
+  # (This join needs to be updated to match the new mapping_df column order)
+  join_condition <- setNames("category", column_name)
+  df_with_ids <- data_df %>%
+    left_join(mapping_df, by = join_condition)
+  
+  # 3. Create the SpatRaster from the data frame
+  raster_df <- df_with_ids %>%
+    dplyr::select(x, y, value)
+  
+  categorical_raster <- terra::rast(
+    raster_df,
+    type = "xyz",
+    crs = crs(template_raster)
+  )
+  
+  # 4. Embed the category table (legend) into the raster
+  levels(categorical_raster) <- mapping_df
+  message("Category labels embedded in the raster.")
+  
+  # 5. Define output paths and save the files
+  raster_path <- paste0(base_path, "_", tolower(column_name), "_map.tif")
+  legend_path <- paste0(base_path, "_", tolower(column_name), "_map_legend.csv")
+  
+  writeRaster(
+    categorical_raster, raster_path, overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW"), datatype = "INT1U")
+  )
+  message("SUCCESS: Categorical raster saved to:\n", raster_path)
+  
+  write.csv(mapping_df, legend_path, row.names = FALSE)
+  message("SUCCESS: Raster legend saved to:\n", legend_path)
+}
+# --- Create the "Combination" label column ---
+base_comparison_df <- base_comparison_df %>%
+  mutate(Combination = paste(Reference, "-", Classified))
+
+# --- Define a base file path for the outputs ---
+output_base_path <- file.path(
+  output_root_dir, "classified_maps", study_site_name,
+  paste0(study_site_name, "_", target_year, "_jussila")
+)
+
+# --- Generate and save each of the three rasters ---
+create_and_save_categorical_raster(base_comparison_df, "Reference", output_base_path, attributes_raster)
+create_and_save_categorical_raster(base_comparison_df, "Classified", output_base_path, attributes_raster)
+create_and_save_categorical_raster(base_comparison_df, "Combination", output_base_path, attributes_raster)
 

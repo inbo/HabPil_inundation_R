@@ -23,16 +23,16 @@ source("source/spatial_processing_utils.R")
 source("source/gdrive_utils.R")
 
 # --- Primary Analysis Parameters ---
-study_site_name <- "Webbekomsbroek"
+# study_site_name <- "Webbekomsbroek"
 # study_site_name <- "Schulensmeer"
 # study_site_name <- "Kloosterbeemden"
-# study_site_name <- "Webbekomsbroek2"
+ study_site_name <- "Webbekomsbroek2"
 
 # Select the single target year for this analysis run.
-# target_year <- 2021 # Currently active year
 # target_year <- 2020
- target_year <- 2023
-# target_year <- 2024
+# target_year <- 2021
+# target_year <- 2023
+ target_year <- 2024
 
 # --- Root Directories ---
 data_root_dir <- "data"
@@ -106,15 +106,10 @@ s2_raster_aligned <- terra::resample(s2_raster_filtered, fractions_raster, metho
 s2_raster_aligned <- terra::mask(s2_raster_aligned, fractions_raster[[1]]) # Ensure NA patterns match
 message("Alignment complete.")
 
-# --- 2.3 Combine and save for checkpointing -----------------------------------
+# --- 2.3 Combine -----------------------------------
 message("Combining aligned rasters into a single object...")
 combined_raster <- c(fractions_raster, s2_raster_aligned)
 print(combined_raster)
-
-dir.create(dirname(combined_raster_path), recursive = TRUE, showWarnings = FALSE)
-writeRaster(combined_raster, combined_raster_path, overwrite = TRUE, gdal=c("COMPRESS=LZW"))
-message("Intermediate combined raster saved successfully.")
-
 
 # ==============================================================================
 # 3️⃣ Extract Pixel Data to Data Frame
@@ -152,16 +147,39 @@ fraction_colnames <- names(fractions_raster)
 combined_pixel_data_df <- classify_pixel_mixture(combined_pixel_data_df, fraction_colnames)
 message("Dominant label and mixture category assigned.")
 
+message("Forcing specific order on categorical columns...")
+
+combined_pixel_data_df$dominant_label <- factor(
+  combined_pixel_data_df$dominant_label, 
+  levels = c("Inundated", "Not inundated", "Other", "Reed", "Uncertain")
+)
+
 # ==============================================================================
 # 5️⃣ Integrate Derived Attributes into Final Raster
 # ==============================================================================
 message("\n--- Integrating derived attributes back into a final raster ---")
 
-# Define which new columns you want to add as raster layers
-attributes_to_add <- c(
+# --- 5.1 Identify all columns to be added as new raster layers ---------------
+
+# Get the names of the newly created scaled reflectance bands
+scaled_band_cols <- names(combined_pixel_data_df)[grep("_scaled$", names(combined_pixel_data_df))]
+
+# Define the other derived attributes you want to add
+other_attribute_cols <- c(
   "ndvi", "ndwi_mf", "mndwi11", "mndwi12", "ndmi_gao11", "str1", "str2",
   "dominant_label", "mixture_category"
 )
+
+# Combine all new attributes into a single list
+attributes_to_add <- c(scaled_band_cols, other_attribute_cols)
+
+message(
+  "The following ", length(attributes_to_add),
+  " attributes will be added as new raster layers:"
+)
+print(attributes_to_add)
+
+# --- 5.2 Rasterize the attributes and combine with the original raster -------
 
 # Use the utility function to create the new raster layers
 derived_attribute_raster <- rasterize_attributes(
@@ -174,7 +192,6 @@ derived_attribute_raster <- rasterize_attributes(
 final_raster_with_attributes <- c(combined_raster, derived_attribute_raster)
 
 message("Final raster with all attributes created successfully.")
-
 print(final_raster_with_attributes)
 
 

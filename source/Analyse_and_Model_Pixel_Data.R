@@ -21,16 +21,16 @@ library(scales) # For formatting plot labels
 # ==============================================================================
 
 # --- Primary Analysis Parameters ---
-study_site_name <- "Webbekomsbroek"
+# study_site_name <- "Webbekomsbroek"
 # study_site_name <- "Schulensmeer"
 # study_site_name <- "Kloosterbeemden"
-# study_site_name <- "Webbekomsbroek2"
+ study_site_name <- "Webbekomsbroek2"
 
 # Select the single target year for this analysis run.
-# target_year <- 2021 # Currently active year
 # target_year <- 2020
- target_year <- 2023
-# target_year <- 2024
+# target_year <- 2021
+# target_year <- 2023
+ target_year <- 2024
 
 # --- Root Directory ---
 output_root_dir <- "output"
@@ -134,7 +134,7 @@ if (nrow(pure_pixels_df) > 0) {
   print(boxplot_pure)
   
   # Save the plot
-  plot_output_dir <- file.path(output_root_dir, "boxplots", study_site_name, target_year)
+  plot_output_dir <- file.path(output_root_dir, "plots", study_site_name, target_year)
   dir.create(plot_output_dir, recursive = TRUE, showWarnings = FALSE)
   ggsave(
     file.path(plot_output_dir, "boxplot_pure_pixels.png"),
@@ -269,21 +269,33 @@ evaluation_df <- pixel_data_df %>%
   )) %>%
   filter(!is.na(reference_class))
 
-# Calculate TP, FP, FN by mixture level for both 'water' and 'dry' classes
-performance_summary <- evaluation_df %>%
+# --- Calculate metrics per mixture category ---
+performance_by_category <- evaluation_df %>%
   group_by(mixture_category) %>%
   summarise(
-    # Water metrics
     tp_water = sum(reference_class == "water" & predicted_jussila == "water"),
     fp_water = sum(reference_class == "dry"   & predicted_jussila == "water"),
     fn_water = sum(reference_class == "water" & predicted_jussila == "dry"),
-    # Dry metrics
     tp_dry = sum(reference_class == "dry"   & predicted_jussila == "dry"),
     fp_dry = sum(reference_class == "water" & predicted_jussila == "dry"),
     fn_dry = sum(reference_class == "dry"   & predicted_jussila == "water"),
     .groups = 'drop'
+  )
+
+# --- Calculate overall metrics (across all pixels) ---
+performance_overall <- evaluation_df %>%
+  summarise(
+    tp_water = sum(reference_class == "water" & predicted_jussila == "water"),
+    fp_water = sum(reference_class == "dry"   & predicted_jussila == "water"),
+    fn_water = sum(reference_class == "water" & predicted_jussila == "dry"),
+    tp_dry = sum(reference_class == "dry"   & predicted_jussila == "dry"),
+    fp_dry = sum(reference_class == "water" & predicted_jussila == "dry"),
+    fn_dry = sum(reference_class == "dry"   & predicted_jussila == "water")
   ) %>%
-  # Calculate recall, precision, and F1 for both classes
+  mutate(mixture_category = "Overall") # Add label for this new row
+
+# --- Combine, calculate final metrics, and print ---
+performance_summary <- bind_rows(performance_by_category, performance_overall) %>%
   mutate(
     recall_water    = tp_water / (tp_water + fn_water),
     precision_water = tp_water / (tp_water + fp_water),
@@ -293,9 +305,78 @@ performance_summary <- evaluation_df %>%
     f1_dry          = 2 * (precision_dry * recall_dry) / (precision_dry + recall_dry)
   ) %>%
   # Replace any NaN (from 0/0) with 0
-  mutate(across(where(is.numeric), ~replace_na(., 0)))
+  mutate(across(where(is.numeric), ~replace_na(., 0))) %>%
+  # Add the Macro F1 score as a final summary column
+  mutate(macro_f1 = (f1_water + f1_dry) / 2)
 
+message("\n--- Final Performance Metrics ---")
 print(performance_summary)
+
+# --- 3.5 Visualize Confusion Matrix as a Heatmap ------------------------------
+message("Generating a heatmap for the confusion matrix")
+
+# Convert the confusion matrix table to a data frame for ggplot
+confusion_df <- as.data.frame(confusion_matrix)
+names(confusion_df) <- c("Dominant_Label", "Model_Prediction", "Count")
+
+# Define categories for custom coloring:
+# 1. Correct: "Inundated" predicted as "water", "Not inundated" predicted as "dry"
+# 2. Incorrect: "Inundated" predicted as "dry", "Not inundated" predicted as "water"
+# 3. Other: Any predictions involving "Other", "Reed", "Uncertain" labels
+confusion_df <- confusion_df %>%
+  mutate(
+    Cell_Category = case_when(
+      (Dominant_Label == "Inundated" & Model_Prediction == "water") ~ "Correct_Prediction",
+      (Dominant_Label == "Not inundated" & Model_Prediction == "dry") ~ "Correct_Prediction",
+      (Dominant_Label == "Inundated" & Model_Prediction == "dry") ~ "Incorrect_Prediction",
+      (Dominant_Label == "Not inundated" & Model_Prediction == "water") ~ "Incorrect_Prediction",
+      TRUE ~ "Other_Category"
+    )
+  )
+
+# Define custom colors for the categories (brighter colors, white for "Other")
+custom_fill_colors <- c(
+  "Correct_Prediction"   = "#22c55e",  # A bright, clear green
+  "Incorrect_Prediction" = "#ef4444",  # A bright, clear red
+  "Other_Category"       = "white"     # White for irrelevant cells
+)
+
+# Create the heatmap plot with the specified high-contrast style
+confusion_plot <- ggplot(confusion_df, aes(x = Model_Prediction, y = Dominant_Label)) +
+  geom_tile(aes(fill = Cell_Category), color = "black") + # Fill by category
+  geom_text(aes(label = scales::comma(Count)), size = 5, color = "black") + # Black text for all cells
+  scale_fill_manual(
+    values = custom_fill_colors,
+    guide = "none" # This removes the legend for the fill colors
+  ) +
+  labs(
+    title = "Confusion Matrix",
+    subtitle = paste("Site:", study_site_name, "| Year:", target_year),
+    x = "Model Prediction",
+    y = "Dominant Label (Reference)"
+  ) +
+  theme_bw(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    legend.position = "none",
+    # Remove axis titles, ticks, and grid lines for a clean look
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(), 
+    panel.border = element_blank()
+  )
+
+print(confusion_plot)
+
+# Save the plot
+ggsave(
+  file.path(plot_output_dir, "confusion_matrix_heatmap.png"),
+  plot = confusion_plot, width = 8, height = 7, dpi = 300
+)
+
+message("Confusion matrix heatmap saved.")
 
 
 # ==============================================================================
@@ -304,16 +385,24 @@ print(performance_summary)
 message("\n--- Generating final performance plots ---")
 
 # --- 4.1 Plot model performance metrics ---------------------------------------
-metrics_plot_data <- performance_summary %>%
+metrics_plot_data_full <- performance_summary %>%
   select(mixture_category, starts_with("recall"), starts_with("precision"), starts_with("f1")) %>%
   pivot_longer(
-    -mixture_category, 
-    names_to = c("metric", "class"), 
-    names_pattern = "(.*)_(.*)", 
+    -mixture_category,
+    names_to = c("metric", "class"),
+    names_pattern = "(.*)_(.*)",
     values_to = "value"
   )
 
-metrics_plot_data$mixture_category <- factor(metrics_plot_data$mixture_category, levels = c("pure", "mixed", "very_mixed"))
+# Filter out the "Overall" category for this specific plot
+metrics_plot_data <- metrics_plot_data_full %>%
+  filter(mixture_category != "Overall")
+
+# Set the factor levels for the plot's x-axis
+metrics_plot_data$mixture_category <- factor(
+  metrics_plot_data$mixture_category,
+  levels = c("pure", "mixed", "very_mixed")
+)
 metrics_plot_data$metric <- factor(metrics_plot_data$metric, levels = c("recall", "precision", "f1"))
 
 metrics_plot <- ggplot(metrics_plot_data, aes(x = mixture_category, y = value, group = class, color = class)) +
@@ -336,4 +425,29 @@ ggsave(
   plot = metrics_plot, width = 10, height = 6, dpi = 300
 )
 message("Performance metrics plot saved.")
+
+# ==============================================================================
+# 5️⃣ Save Performance Metrics Output
+# ==============================================================================
+message("\n--- Saving performance metrics table ---")
+
+# --- 5.1 Define output path and save the CSV ----------------------------------
+# Use the same directory as the main pixel data table for consistency
+metrics_csv_path <- file.path(
+  output_root_dir, "pixel_data_tables", study_site_name, target_year,
+  paste0(study_site_name, "_", target_year, "_model_performance_metrics.csv")
+)
+
+# Ensure the output directory exists
+dir.create(dirname(metrics_csv_path), recursive = TRUE, showWarnings = FALSE)
+
+# Write the performance_summary data frame to a CSV file
+write.csv(performance_summary, file = metrics_csv_path, row.names = FALSE)
+
+message("SUCCESS: Performance metrics data frame saved to:\n", metrics_csv_path)
+
+# --- 5.2 Overwrite the pixel attributes CSV with the new prediction column ---
+message("\nUpdating the original pixel attributes file with model predictions...")
+write.csv(pixel_data_df, file = input_csv_path, row.names = FALSE)
+message("SUCCESS: The file has been updated with the 'predicted_jussila' column:\n", input_csv_path)
 
