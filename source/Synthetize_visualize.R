@@ -358,4 +358,3 @@ grand_overall_performance <- aggregated_pixels_df %>%
 
 # Print the final summary table to the console
 print(grand_overall_performance)
-
