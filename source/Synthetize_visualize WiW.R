@@ -41,7 +41,7 @@ site_abbreviations <- list(
 output_root_dir <- "output"
 
 # --- Output Path for New Plots ---
-# UPDATED: Distinct folder for WiW plots
+# Distinct folder for WiW plots
 synthesis_plots_dir <- file.path(output_root_dir, "synthesis_plots_wiw")
 dir.create(synthesis_plots_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -55,7 +55,7 @@ message("\n--- Finding and loading all result CSVs ---")
 all_runs <- expand.grid(study_site = study_sites, year = years)
 
 # --- 1.2 Load all Performance Metrics files ---
-# UPDATED: Load WiW metrics
+# Load WiW metrics
 metrics_files <- file.path(
   output_root_dir, "pixel_data_tables", all_runs$study_site, all_runs$year,
   paste0(all_runs$study_site, "_", all_runs$year, "_wiw_model_performance_metrics.csv")
@@ -105,7 +105,7 @@ aggregated_pixels_df <- map_dfr(existing_pixel_files, function(file) {
   site <- parts[length(parts) - 2]
   year <- as.integer(parts[length(parts) - 1])
   read.csv(file) %>%
-    # UPDATED: Select predicted_wiw
+    # Select predicted_wiw
     select(dominant_label, mixture_category, predicted_wiw) %>%
     mutate(study_site = site, year = year, .before = 1)
 })
@@ -343,7 +343,7 @@ message(paste0(
 # ==============================================================================
 message("\n--- Generating Plot 4: Overall Confusion Matrix ---")
 
-# UPDATED: Use predicted_wiw
+# Use predicted_wiw
 overall_confusion_matrix <- table(
   `Dominant Label` = aggregated_pixels_df$dominant_label,
   `Model Prediction` = aggregated_pixels_df$predicted_wiw
@@ -352,7 +352,7 @@ overall_confusion_matrix <- table(
 confusion_df <- as.data.frame(overall_confusion_matrix)
 names(confusion_df) <- c("Dominant_Label", "Model_Prediction", "Count")
 
-# --- FIX: Revert factor order for plotting ---
+# --- Revert factor order for plotting ---
 # Define the standard order (not reversed)
 standard_label_order <- c('Inundated', 'Not inundated', 'Other', 'Reed', 'Uncertain')
 
