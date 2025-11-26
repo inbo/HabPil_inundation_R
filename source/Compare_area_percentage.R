@@ -105,10 +105,7 @@ area_comparison_plot <- ggplot(plot_data, aes(x = Reference_Water_Percent, y = P
   # Add the points, mapping color to Resolution and shape to study_site
   geom_point(aes(color = Resolution, shape = study_site), size = 3.5, alpha = 0.8, stroke = 1.2) +
   
-  # --- REMOVED: Regression lines are not relevant to NSE ---
-  # geom_smooth(aes(color = Resolution), method = "lm", se = FALSE, formula = y ~ x, linetype = "solid") +
-  
-  # --- NEW: Add NSE text labels ---
+  # --- Add NSE text labels ---
   geom_text(
     data = agreement_data,
     aes(label = nse_label, color = Resolution),
