@@ -109,6 +109,22 @@ aggregated_pixels_df <- map_dfr(existing_pixel_files, function(file) {
 message("Successfully loaded ", length(existing_pixel_files), " pixel attribute files, totaling ",
         format(nrow(aggregated_pixels_df), big.mark = ","), " pixels.")
 
+# --- 1.5 Save the Aggregated Pixel Dataset ---
+message("\n--- Saving the aggregated pixel dataset (all sites/years) ---")
+
+output_pixel_csv_path <- file.path(
+  synthesis_plots_dir, # Save to the synthesis output folder
+  "ALL_SITES_aggregated_pixels.csv" # A new, descriptive name
+)
+
+write.csv(aggregated_pixels_df, output_pixel_csv_path, row.names = FALSE)
+
+message(paste0(
+  "SUCCESS: Aggregated pixel data (", 
+  format(nrow(aggregated_pixels_df), big.mark = ","), 
+  " rows) saved to:\n", 
+  output_pixel_csv_path
+))
 
 # ==============================================================================
 # 2️⃣ Generate Plot 1: Performance vs. Time of Year (Separate Plots)
@@ -282,6 +298,43 @@ plot3 <- ggplot(plot3_data, aes(y = dominant_label, x = pixel_count, fill = domi
 print(plot3)
 ggsave(file.path(synthesis_plots_dir, "3_overall_pixel_counts.png"), plot = plot3, width = 12, height = 7)
 
+# --- 4.5 Calculate Percentage of 'Uncertain' Pixels ---
+message("\n--- Calculating percentage of 'Uncertain' pixels ---")
+
+# Calculate total number of pixels
+total_pixels <- nrow(aggregated_pixels_df)
+
+# Calculate number of 'Uncertain' pixels
+uncertain_pixels <- aggregated_pixels_df %>%
+  filter(dominant_label == "Uncertain") %>%
+  nrow()
+
+# Calculate percentage
+percent_uncertain <- (uncertain_pixels / total_pixels) * 100
+
+message(paste0(
+  "Total pixels aggregated: ", format(total_pixels, big.mark = ","), "\n",
+  "'Uncertain' pixels: ", format(uncertain_pixels, big.mark = ","), "\n",
+  "Percentage 'Uncertain': ", round(percent_uncertain, 2), "%"
+))
+
+# --- 4.6 Calculate Percentage of 'Non-Pure' or 'Uncertain' Pixels ---
+message("\n--- Calculating percentage of 'Non-Pure' or 'Uncertain' pixels ---")
+
+# Find pixels that are NOT pure (i.e., 'mixed' or 'very_mixed') OR are 'Uncertain'
+# Note: The factor levels are 'pure', 'mixed', 'very_mixed'
+non_pure_or_uncertain_pixels <- aggregated_pixels_df %>%
+  filter(mixture_category %in% c("mixed", "very_mixed") | dominant_label == "Uncertain") %>%
+  nrow()
+
+# Calculate percentage
+percent_non_pure_or_uncertain <- (non_pure_or_uncertain_pixels / total_pixels) * 100
+
+message(paste0(
+  "Total pixels aggregated: ", format(total_pixels, big.mark = ","), "\n",
+  "Pixels that are 'Non-Pure' (Mixed/Very Mixed) OR 'Uncertain': ", format(non_pure_or_uncertain_pixels, big.mark = ","), "\n",
+  "Percentage 'Non-Pure or Uncertain': ", round(percent_non_pure_or_uncertain, 2), "%"
+))
 
 # ==============================================================================
 # 5️⃣ Generate Plot 4: Overall Confusion Matrix Heatmap
@@ -295,6 +348,11 @@ overall_confusion_matrix <- table(
 
 confusion_df <- as.data.frame(overall_confusion_matrix)
 names(confusion_df) <- c("Dominant_Label", "Model_Prediction", "Count")
+
+# Define the standard order (not reversed)
+standard_label_order <- c('Inundated', 'Not inundated', 'Other', 'Reed', 'Uncertain')
+# Apply this order to the Dominant_Label factor
+confusion_df$Dominant_Label <- factor(confusion_df$Dominant_Label, levels = rev(standard_label_order))
 
 confusion_df <- confusion_df %>%
   mutate(
@@ -319,7 +377,7 @@ plot4 <- ggplot(confusion_df, aes(x = Model_Prediction, y = Dominant_Label, fill
         axis.ticks = element_blank(), panel.grid = element_blank(), panel.border = element_blank())
 
 print(plot4)
-ggsave(file.path(synthesis_plots_dir, "4_overall_confusion_matrix.png"), plot = plot4, width = 8, height = 7)
+ggsave(file.path(synthesis_plots_dir, "4_overall_confusion_matrix.png"), plot = plot4, width = 8, height = 7, dpi = 100)
 
 message("\n--- Synthesis complete. All plots saved to '", synthesis_plots_dir, "' ---")
 
