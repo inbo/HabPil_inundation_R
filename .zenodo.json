@@ -1,0 +1,39 @@
+{
+  "access_right": "open",
+  "title": "Inundation Habitats Pilot",
+  "description": "<p>In this project, we try to map inundation from freely available satellite data, as part of the Biodiversa Habitats Pilot<\/p>",
+  "keywords": [
+    "remote sensing",
+    "inundation",
+    "satellites",
+    "wetlands",
+    "grasslands"
+  ],
+  "upload_type": "software",
+  "license": "CC-BY-4.0",
+  "language": "eng",
+  "contributors": [
+    {
+      "name": "Heremans, Stien",
+      "affiliation": "Instituut voor Natuur- en Bosonderzoek (INBO)",
+      "orcid": "0000-0002-5356-1093",
+      "type": "contactperson"
+    },
+    {
+      "name": "Research Institute for Nature and Forest (INBO)",
+      "type": "rightsholder"
+    }
+  ],
+  "creators": [
+    {
+      "name": "Heremans, Stien",
+      "affiliation": "Instituut voor Natuur- en Bosonderzoek (INBO)",
+      "orcid": "0000-0002-5356-1093"
+    }
+  ],
+  "communities": [
+    {
+      "identifier": "inbo"
+    }
+  ]
+}
