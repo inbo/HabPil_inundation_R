@@ -21,5 +21,6 @@ Research Institute for Nature and Forest (INBO)[^cph][^fnd]
 <!-- community: inbo -->
 
 <!-- description: start -->
-In this project, we try to map inundation from freely available satellite data, as part of the Biodiversa Habitats Pilot
+In this project, we try to map inundation from freely available satellite data, as part of the Biodiversa Habitats Pilot. 
+This repo is the internal working repo.
 <!-- description: end -->
