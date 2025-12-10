@@ -97,7 +97,7 @@ Extract_labeled_pixel_values.R
 		training and validating classification models.
 
 
-Analyse_and_Model_Pixel_Data.R
+Analyse_and_Model_Pixel_Data_Jussila.R
   	Purpose:
   	This script serves as the final analysis and validation step in the workflow. It takes the processed 
 	pixel-level data (containing spectral indices and ground-truth labels) and evaluates the performance 
@@ -163,7 +163,7 @@ Apply_jussila_model_map.R
  		as compressed GeoTIFF (.tif) and  exports the high-resolution comparison plots as PNG files to the project's 
 		output directory.
 
-Synthetize_visualize.R
+Synthetize_visualize_Jussila.R
 	Purpose:
 	This script serves as the final synthesis step for the entire project. It aggregates the outputs from
 	all individual analysis runs (across multiple study sites and years) to produce high-level summary
@@ -183,6 +183,8 @@ Synthetize_visualize.R
 		summarizes the Jussila model's performance across every pixel from all combined study sites and years.
 	- Centralized Output Management: Saves all generated synthesis plots as high-resolution PNG files into a
 		dedicated `output/synthesis_plots` directory for easy access and reporting.
+
+
 
 
 
